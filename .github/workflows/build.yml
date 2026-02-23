@@ -1,0 +1,44 @@
+name: Build Android IR Engine
+
+# 触发条件：当你点按钮，或者修改代码时触发
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # 使用 GitHub 免费的 Linux 服务器
+    steps:
+      - name: 1. 拉取代码
+        uses: actions/checkout@v3
+
+      - name: 2. 设置 Java 环境
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: 3. 寻找安卓 SDK 并编译打包
+        run: |
+          # GitHub 服务器自带 Android SDK，我们自动寻找最新版的 android.jar 和 d8 工具
+          ANDROID_JAR=$(find $ANDROID_HOME/platforms -name "android.jar" | sort -r | head -n 1)
+          D8_TOOL=$(find $ANDROID_HOME/build-tools -name "d8" | sort -r | head -n 1)
+          
+          echo "找到 Android SDK: $ANDROID_JAR"
+          echo "找到 打包工具: $D8_TOOL"
+          
+          # 编译 Java 为 Class (使用安卓 SDK 库)
+          javac -source 1.8 -target 1.8 -cp "$ANDROID_JAR" IrBlaster.java
+          
+          # 将 Class 转换为安卓专用的 Dex 格式
+          "$D8_TOOL" --output . IrBlaster.class
+          
+          # 打包成 Jar 文件
+          jar cvf ir_engine.jar classes.dex
+
+      - name: 4. 上传打包好的文件供下载
+        uses: actions/upload-artifact@v3
+        with:
+          name: ir_engine_build
+          path: ir_engine.jar
