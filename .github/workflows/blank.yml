@@ -1,4 +1,4 @@
-name: IREXT_PRO_ANDROIDX_FIX_BUILD
+name: IREXT_PRO_SDK_FINAL_FIX
 
 on: [push, workflow_dispatch]
 
@@ -13,7 +13,7 @@ jobs:
           mkdir -p app/src/main/java/hap/00660/re
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/jniLibs
-          echo "✅ 兵工厂目录已就绪"
+          echo "✅ 兵工厂目录初始化完成"
 
       - name: 2. 部署 JNI 硬件解码驱动
         run: |
@@ -21,7 +21,7 @@ jobs:
           unzip jni.zip -d jni_temp
           SOURCE_DIR=$(find jni_temp -name "arm64-v8a" -type d | head -n 1 | xargs dirname)
           cp -r $SOURCE_DIR/* app/src/main/jniLibs/
-          echo "✅ 硬件解码库 .so 已成功注入"
+          echo "✅ JNI 驱动已部署"
 
       - name: 3. 编写 JNI 桥接层代码
         run: |
@@ -36,7 +36,7 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写核心服务 (简体中文 + 认证逻辑)
+      - name: 4. 编写核心服务 (Web 接口逻辑)
         run: |
           cat <<EOF > app/src/main/java/hap/00660/re/IRService.java
           package hap.00660.re;
@@ -76,7 +76,7 @@ jobs:
                       Map<String, String> p = session.getParms();
                       if (p.get("save_auth") != null) {
                           pref.edit().putString("k", p.get("k")).putString("s", p.get("s")).apply();
-                          return newFixedLengthResponse("配置已保存");
+                          return newFixedLengthResponse("OK");
                       }
                       if (p.get("raw") != null) {
                           try {
@@ -84,26 +84,14 @@ jobs:
                               int[] pat = new int[s.length];
                               for(int i=0; i<s.length; i++) pat[i] = Integer.parseInt(s[i].trim());
                               ir.transmit(38000, pat);
-                              return newFixedLengthResponse("已发射");
-                          } catch (Exception e) { return newFixedLengthResponse("格式错误"); }
+                              return newFixedLengthResponse("Sent");
+                          } catch (Exception e) { return newFixedLengthResponse("Error"); }
                       }
-
-                      String html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
-                          "<style>body{background:#f0f2f5;font-family:sans-serif;text-align:center;padding:15px;} " +
-                          ".card{background:#fff;padding:20px;border-radius:15px;box-shadow:0 4px 15px rgba(0,0,0,0.1);margin-bottom:20px;}" +
-                          "button{width:100%;padding:15px;margin:8px 0;border:none;border-radius:10px;background:#1890ff;color:white;font-size:16px;font-weight:bold;} " +
-                          "input{width:100%;padding:12px;margin:10px 0;border:1px solid #ddd;border-radius:8px;}</style></head>" +
-                          "<body><h2>📡 IREXT 官方终端网关</h2>" +
-                          "<div class='card'><h3>1. 官方授权认证</h3>" +
-                          "<input id='ak' placeholder='输入 App Key' value='"+pref.getString("k","")+"'/>" +
-                          "<input id='as' placeholder='输入 App Secret' value='"+pref.getString("s","")+"'/>" +
-                          "<button onclick='save()'>保存配置并认证</button></div>" +
-                          "<div class='card'><h3>2. 品牌码库搜索</h3>" +
-                          "<input id='bn' placeholder='输入品牌, 如: 格力'/>" +
-                          "<button onclick='alert(\"请先保存Key认证\")'>搜索云端</button></div>" +
-                          "<script>function save(){ var k=document.getElementById(\"ak\").value; var s=document.getElementById(\"as\").value;" +
-                          "fetch(\"/?save_auth=1&k=\"+k+\"&s=\"+s).then(r=>r.text()).then(alert); }</script>" +
-                          "</body></html>";
+                      String html = "<html><body style='text-align:center;padding:20px;font-family:sans-serif;'><h2>📡 IREXT 终端网关</h2>" +
+                          "<input id='ak' placeholder='App Key' value='"+pref.getString("k","")+"' style='width:80%;padding:10px;margin:10px;'/>" +
+                          "<input id='as' placeholder='App Secret' value='"+pref.getString("s","")+"' style='width:80%;padding:10px;margin:10px;'/>" +
+                          "<button onclick='save()' style='width:80%;padding:15px;background:#1890ff;color:white;border:none;'>保存并认证</button>" +
+                          "<script>function save(){ fetch(\"/?save_auth=1&k=\"+document.getElementById(\"ak\").value+\"&s=\"+document.getElementById(\"as\").value).then(()=>alert(\"保存成功\")); }</script></body></html>";
                       return newFixedLengthResponse(html);
                   }
               }
@@ -111,7 +99,7 @@ jobs:
           }
           EOF
 
-      - name: 5. 编写 MainActivity (简体中文版)
+      - name: 5. 编写 MainActivity
         run: |
           cat <<EOF > app/src/main/java/hap/00660/re/MainActivity.java
           package hap.00660.re;
@@ -132,47 +120,41 @@ jobs:
                       } catch (Exception e) {}
                   }).start();
                   startService(new Intent(this, IRService.class));
-                  tv.setText("🚀 IREXT 官方SDK终端\n\n✅ 简体中文UI已就绪\n✅ AndroidX 支持已开启\n✅ JNI 本地解密库就绪\n\n请访问 8080 端口输入授权码");
+                  tv.setText("🚀 IREXT 官方终端已启动\n\n最低要求: Android 8.0\n当前包名: hap.00660.re\n接口端口: 8080");
               }
           }
           EOF
 
-      - name: 6. 清单文件 (包名 hap.00660.re)
+      - name: 6. 清单文件 (清理过时 package 标签)
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="hap.00660.re">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
               <application android:label="HAP红外网关" android:theme="@android:style/Theme.DeviceDefault">
-                  <activity android:name=".MainActivity" android:exported="true">
+                  <activity android:name="hap.00660.re.MainActivity" android:exported="true">
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
                   </activity>
-                  <service android:name=".IRService" android:exported="false" />
+                  <service android:name="hap.00660.re.IRService" android:exported="false" />
               </application>
           </manifest>
           EOF
 
-      - name: 7. 解决报错：开启 AndroidX (创建 gradle.properties)
+      - name: 7. 开启 AndroidX 并禁止 Jetifier 警告
         run: |
-          # 关键步：这行解决了你刚才的报错
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-          echo "✅ AndroidX 属性文件已创建"
 
-      - name: 8. 最终构建配置
+      - name: 8. 最终构建配置 (强制 minSdk 26)
         run: |
           echo "include ':app'" > settings.gradle
           cat <<EOF > build.gradle
           buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
-          allprojects { 
-              repositories { 
-                  google(); mavenCentral();
-                  maven { url "http://maven.irext.net/"; allowInsecureProtocol = true }
-              } 
-          }
+          allprojects { repositories { google(); mavenCentral(); maven { url "http://maven.irext.net/"; allowInsecureProtocol = true } } }
           EOF
+          
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -180,7 +162,9 @@ jobs:
               namespace "hap.00660.re"
               defaultConfig { 
                   applicationId "hap.00660.re"
-                  minSdk 21; targetSdk 34; ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }
+                  minSdk 26        // 关键：必须调到 26 满足 IREXT SDK 要求
+                  targetSdk 34
+                  ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }
               }
           }
           dependencies {
@@ -189,18 +173,18 @@ jobs:
           }
           EOF
 
-      - name: 9. 执行云编译并打印 MD5
+      - name: 9. 执行编译并输出签名
         uses: gradle/actions/setup-gradle@v4
         with: { java-version: 17, gradle-version: 8.7 }
         
-      - name: 10. 编译并提取指纹
+      - name: 10. 编译
         run: |
           gradle assembleDebug
           echo "========================================================="
-          echo "👇 拿到这个 MD5 去 IREXT 控制台注册 hap.00660.re 👇"
+          echo "👇 拿到这个 MD5 填入 IREXT 控制台注册包名 hap.00660.re 👇"
           keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android | grep MD5 | sed 's/MD5: //' | sed 's/://g' | tr '[:upper:]' '[:lower:]'
           echo "========================================================="
 
       - name: 11. 导出 APK
         uses: actions/upload-artifact@v4
-        with: { name: IREXT_FINAL_STABLE_APK, path: app/build/outputs/apk/debug/app-debug.apk }
+        with: { name: IREXT_HAP_STABLE_APK, path: app/build/outputs/apk/debug/app-debug.apk }
