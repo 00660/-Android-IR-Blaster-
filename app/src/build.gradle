@@ -1,0 +1,12 @@
+plugins { id 'com.android.application' }
+android {
+    compileSdk 33
+    namespace "com.ir.test"
+    defaultConfig {
+        applicationId "com.ir.test"
+        minSdk 19
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+    }
+}
