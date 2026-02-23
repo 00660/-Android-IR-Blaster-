@@ -1,4 +1,4 @@
-name: IR_GATEWAY_ONE_STEP_BUILD
+name: IR_GATEWAY_FIXED_BUILD
 
 on: [push, workflow_dispatch]
 
@@ -12,12 +12,12 @@ jobs:
           mkdir -p app/src/main/java/com/ir/gateway
           mkdir -p app/src/main/res/layout
 
-      - name: 2. 现场手搓 Android 代码 (集成 Web API)
+      - name: 2. 现场生成 Android 代码 (适配新版规范)
         run: |
-          # 1. 编写清单文件 (申请红外和网络权限)
+          # 清单文件：删除过时的 package 属性，防止报错
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.ir.gateway">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -32,7 +32,7 @@ jobs:
           </manifest>
           EOF
 
-          # 2. 编写界面 (显示IP地址)
+          # 界面布局
           cat <<EOF > app/src/main/res/layout/activity_main.xml
           <?xml version="1.0" encoding="utf-8"?>
           <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -43,11 +43,11 @@ jobs:
               <TextView android:id="@+id/ip_text" android:layout_width="wrap_content" 
                   android:layout_height="wrap_content" android:text="正在获取IP..." android:textSize="18sp" android:layout_marginTop="20dp" />
               <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" 
-                  android:text="请在电脑浏览器访问上面的地址" android:layout_marginTop="40dp" android:textColor="#666666" />
+                  android:text="在电脑访问显示的地址控制" android:layout_marginTop="40dp" android:textColor="#666666" />
           </LinearLayout>
           EOF
 
-          # 3. 编写核心 Java 代码 (含 Web API 逻辑)
+          # Java核心逻辑
           cat <<EOF > app/src/main/java/com/ir/gateway/MainActivity.java
           package com.ir.gateway;
           import android.app.Activity;
@@ -94,7 +94,7 @@ jobs:
                               }
                           } catch (Exception e) { return newFixedLengthResponse("Error: " + e.getMessage()); }
                       }
-                      return newFixedLengthResponse("Usage: http://IP:8080/?f=38000&p=9000,4500,560...");
+                      return newFixedLengthResponse("Usage: http://IP:8080/?f=38000&p=9000,4500...");
                   }
               }
               private String getIP() {
@@ -111,7 +111,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写 Gradle 编译配置
+      - name: 3. 编写 Gradle 配置 (解决 Resolved 冲突)
         run: |
           echo "include ':app'" > settings.gradle
           cat <<EOF > build.gradle
@@ -123,6 +123,7 @@ jobs:
               repositories { google(); mavenCentral() }
           }
           EOF
+          
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application' }
           android {
@@ -141,17 +142,22 @@ jobs:
           }
           EOF
 
-      - name: 4. 设置 Java 17 环境
+      - name: 4. 设置 Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: 5. 编译生成 APK (白嫖生产力)
+      - name: 5. 设置指定版本 Gradle (降级至 8.7 避开 9.3 兼容坑)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: 6. 执行编译 (White-Label Build)
         run: gradle assembleDebug
 
-      - name: 6. 上传最终网关 APK
+      - name: 7. 导出最终网关 APK
         uses: actions/upload-artifact@v4
         with:
-          name: IR_Web_Gateway
+          name: IR_Web_Gateway_Stable
           path: app/build/outputs/apk/debug/app-debug.apk
