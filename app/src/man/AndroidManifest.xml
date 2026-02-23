@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.ir.test">
+    <!-- 必须申请红外权限 -->
+    <uses-permission android:name="android.permission.TRANSMIT_IR" />
+    <uses-feature android:name="android.hardware.consumerir" android:required="true" />
+
+    <application android:label="红外测试工具">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
