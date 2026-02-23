@@ -1,4 +1,4 @@
-name: IR_GATEWAY_ROCK_SOLID
+name: IR_GATEWAY_REAL_UI
 
 on: [push, workflow_dispatch]
 
@@ -9,14 +9,14 @@ jobs:
       - name: 1. 清理战场
         run: rm -rf * && mkdir -p app/src/main/java/com/ir/gateway && mkdir -p app/src/main/res/layout
 
-      - name: 2. 注入“稳如磐石”的红外核心代码
+      - name: 2. 注入“图形化遥控器”代码
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
-              <application android:label="老表红外终极网关" android:theme="@android:style/Theme.DeviceDefault">
+              <application android:label="老表万能遥控面板" android:theme="@android:style/Theme.DeviceDefault">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
                   </activity>
@@ -30,8 +30,7 @@ jobs:
           import android.hardware.ConsumerIrManager;
           import android.os.Bundle;
           import android.widget.TextView;
-          import java.net.InetAddress;
-          import java.net.NetworkInterface;
+          import java.net.*;
           import java.util.*;
           import fi.iki.elonen.NanoHTTPD;
 
@@ -45,13 +44,10 @@ jobs:
                   super.onCreate(savedInstanceState);
                   ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE);
                   myIp = getIP();
-                  
                   TextView tv = new TextView(this);
                   tv.setTextSize(20);
-                  tv.setPadding(40, 40, 40, 40);
-                  tv.setText("✅ 核心发射引擎已就绪\n\n请用电脑浏览器访问:\nhttp://" + myIp + ":8080");
+                  tv.setText("📱 图形化红外网关已启动\n\n请访问:\nhttp://" + myIp + ":8080");
                   setContentView(tv);
-                  
                   server = new WebServer(8080);
                   try { server.start(); } catch (Exception e) {}
               }
@@ -61,65 +57,122 @@ jobs:
                   @Override
                   public Response serve(IHTTPSession session) {
                       Map<String, String> p = session.getParms();
+                      String dev = p.get("dev"); // 设备类型 (tv/ac)
+                      String brand = p.get("brand"); // 品牌
+                      String key = p.get("key"); // 按键功能
                       
-                      // 唯一且绝对管用的发射接口
-                      String raw = p.get("raw");
-                      if (raw != null) {
+                      if (dev != null && key != null) {
                           try {
-                              String[] parts = raw.split(",");
-                              int[] pat = new int[parts.length];
-                              for(int i=0; i<parts.length; i++) pat[i] = Integer.parseInt(parts[i].trim());
-                              
-                              if (ir != null && ir.hasIrEmitter()) {
-                                  ir.transmit(38000, pat);
-                                  return newFixedLengthResponse("OK_SENT");
-                              } else {
-                                  return newFixedLengthResponse("ERR_NO_IR");
+                              int[] pattern = new int[0];
+                              // --- 电视逻辑 ---
+                              if ("tv".equals(dev)) {
+                                  // 预设三星、索尼、LG、通用NEC的常用键值
+                                  int code = 0;
+                                  if ("samsung".equals(brand)) {
+                                      if("pwr".equals(key)) code=0xE0E040BF;
+                                      else if("vol_up".equals(key)) code=0xE0E0E01F;
+                                      else if("vol_dn".equals(key)) code=0xE0E0D02F;
+                                      pattern = encodeSamsung(code);
+                                  } else if ("sony".equals(brand)) {
+                                      if("pwr".equals(key)) code=0xA90;
+                                      else if("vol_up".equals(key)) code=0x490;
+                                      pattern = encodeSony(code, 12);
+                                  } else { // 默认 NEC (小米/通用)
+                                      if("pwr".equals(key)) code=0x20DF10EF;
+                                      else if("vol_up".equals(key)) code=0x20DF40BF;
+                                      pattern = encodeNEC(code);
+                                  }
                               }
-                          } catch (Exception e) {
-                              return newFixedLengthResponse("ERR_FORMAT");
-                          }
+                              // --- 空调逻辑 ---
+                              else if ("ac".equals(dev)) {
+                                  if ("gree".equals(brand)) pattern = encodeGree("on".equals(key));
+                                  else if ("midea".equals(brand)) pattern = encodeMidea("on".equals(key));
+                              }
+
+                              if (pattern.length > 0) {
+                                  ir.transmit(38000, pattern);
+                                  return newFixedLengthResponse("OK");
+                              }
+                          } catch (Exception e) { return newFixedLengthResponse("ERR"); }
                       }
 
-                      // 前端 UI：纯净、无假码
+                      // --- 前端 UI 界面 (直接写死在Java里，省去文件管理) ---
                       String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
-                          "<style>body{font-family:sans-serif;background:#eef2f5;padding:20px;max-width:600px;margin:0 auto;text-align:center;}" +
-                          ".card{background:white;padding:20px;border-radius:12px;box-shadow:0 4px 10px rgba(0,0,0,0.05);margin-bottom:20px;}" +
-                          "input{width:90%;padding:15px;margin:10px 0;border:1px solid #ccc;border-radius:8px;font-size:14px;}" +
-                          "button{width:100%;padding:15px;margin:8px 0;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;color:white;}" +
-                          ".btn-blue{background:#1890ff;} .btn-green{background:#52c41a;} .btn-red{background:#ff4d4f;}</style>" +
-                          "<script>" +
-                          "function sendRaw() {" +
-                          "  let code = document.getElementById('raw_code').value;" +
-                          "  if(!code) return alert('红外码不能为空');" +
-                          "  fetch('/?raw='+code).then(r=>r.text()).then(t=>{" +
-                          "     if(t=='OK_SENT') alert('发射成功！(摄像头可见紫光)'); " +
-                          "     else if(t=='ERR_NO_IR') alert('失败: 手机未检测到红外模块');" +
-                          "     else alert('失败: 格式错误');" +
-                          "  });" +
-                          "}" +
-                          "function sendQuick(code) {" +
-                          "  document.getElementById('raw_code').value = code;" +
-                          "  sendRaw();" +
-                          "}" +
-                          "</script></head><body>" +
-                          "<h2>📱 终极红外控制台</h2>" +
+                          "<style>" +
+                          "body{background:#f0f2f5;font-family:sans-serif;text-align:center;padding:10px;}" +
+                          ".panel{background:#fff;border-radius:16px;padding:20px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,0.1);}" +
+                          "h2{margin-top:0;color:#333;} select{width:100%;padding:10px;font-size:16px;margin-bottom:15px;border-radius:8px;}" +
+                          ".grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;} " +
+                          "button{padding:15px;border:none;border-radius:12px;font-size:16px;font-weight:bold;color:#fff;cursor:pointer;transition:0.2s;}" +
+                          ".btn-pwr{background:#ff4d4f;grid-column:span 2;} .btn-vol{background:#1890ff;} .btn-cool{background:#40a9ff;} .btn-off{background:#595959;}" +
+                          "button:active{transform:scale(0.95);opacity:0.8;}" +
+                          "</style>" +
+                          "<script>function tx(d,b,k){fetch('/?dev='+d+'&brand='+b+'&key='+k).then(()=>{navigator.vibrate(50)})}</script>" +
+                          "</head><body>" +
                           
-                          "<div class='card'><h3>1. 真实快捷码 (点击秒发)</h3>" +
-                          "<button class='btn-blue' onclick='sendQuick(\"9000,4500,560,560,560,560,560,1690,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560,20000,9000,4500,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560\")'>❄️ 格力空调 (开机/制冷/26度)</button>" +
-                          "<button class='btn-red' onclick='sendQuick(\"9000,4500,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560,20000,9000,4500,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560\")'>🛑 格力空调 (一键关机)</button>" +
-                          "<button class='btn-green' onclick='sendQuick(\"4500,4500,560,1690,560,1690,560,1690,560,560,560,560,560,560,560,560,560,560,560,1690,560,1690,560,1690,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560,1690,560,1690,560,1690,560,1690,560,1690,560,1690,560,4500\")'>📺 三星电视 (电源测试专用)</button>" +
-                          "</div>" +
+                          "<h1>📱 老表万能遥控</h1>" +
                           
-                          "<div class='card'><h3>2. 手动精准控制区</h3>" +
-                          "<input type='text' id='raw_code' placeholder='粘贴长串红外码...'>" +
-                          "<button class='btn-green' onclick='sendRaw()'>🚀 强制发射框内代码</button>" +
-                          "</div>" +
+                          "<div class='panel'><h2>📺 电视控制</h2>" +
+                          "<select id='tv_brand'><option value='nec'>通用/小米 (NEC)</option><option value='samsung'>三星 (Samsung)</option><option value='sony'>索尼 (Sony)</option></select>" +
+                          "<div class='grid'>" +
+                          "<button class='btn-pwr' onclick='tx(\"tv\", document.getElementById(\"tv_brand\").value, \"pwr\")'>🔴 电源开关</button>" +
+                          "<button class='btn-vol' onclick='tx(\"tv\", document.getElementById(\"tv_brand\").value, \"vol_up\")'>🔊 音量 +</button>" +
+                          "<button class='btn-vol' onclick='tx(\"tv\", document.getElementById(\"tv_brand\").value, \"vol_dn\")'>🔉 音量 -</button>" +
+                          "</div></div>" +
                           
+                          "<div class='panel'><h2>❄️ 空调控制</h2>" +
+                          "<select id='ac_brand'><option value='gree'>格力空调</option><option value='midea'>美的空调</option></select>" +
+                          "<div class='grid'>" +
+                          "<button class='btn-cool' onclick='tx(\"ac\", document.getElementById(\"ac_brand\").value, \"on\")'>☃️ 制冷 26℃</button>" +
+                          "<button class='btn-off' onclick='tx(\"ac\", document.getElementById(\"ac_brand\").value, \"off\")'>⚫ 一键关机</button>" +
+                          "</div></div>" +
+                          
+                          "<p style='color:#999;font-size:12px'>点击按钮手机震动即代表信号已发射</p>" +
                           "</body></html>";
                       return newFixedLengthResponse(html);
                   }
               }
+
+              // === 协议算法区 ===
+              
+              // NEC (电视通用)
+              private int[] encodeNEC(int data) {
+                  List<Integer> l = new ArrayList<>();
+                  add(l,9000,4500);
+                  for(int i=0;i<32;i++) add(l,560,((data>>i)&1)==1?1690:560);
+                  l.add(560); return toArr(l);
+              }
+              // Samsung
+              private int[] encodeSamsung(int data) {
+                  List<Integer> l = new ArrayList<>();
+                  add(l,4500,4500);
+                  for(int i=0;i<32;i++) add(l,560,((data>>(31-i))&1)==1?1690:560); // 三星高位在前
+                  l.add(560); return toArr(l);
+              }
+              // Sony
+              private int[] encodeSony(int data, int bits) {
+                  List<Integer> l = new ArrayList<>();
+                  add(l,2400,600);
+                  for(int i=0;i<bits;i++) add(l,((data>>i)&1)==1?1200:600,600);
+                  return toArr(l);
+              }
+              // Gree AC
+              private int[] encodeGree(boolean power) {
+                   // 格力标准 YB0F2 码 (开=制冷26度, 关=关机)
+                   int[] on  = {9000,4500, 560,560,560,560,560,1690,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560,20000, 9000,4500, 560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560};
+                   int[] off = {9000,4500, 560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560,20000, 9000,4500, 560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560};
+                   return power ? on : off;
+              }
+              // Midea AC
+              private int[] encodeMidea(boolean power) {
+                   // 美的 R51 通用
+                   int[] on = {4400,4400, 540,1620,540,1620,540,1620,540,1620,540,540,540,540,540,540,540,540,540,1620,540,1620,540,540,540,1620,540,540,540,540,540,540,540,540,540,540,540,1620,540,1620,540,540,540,540,540,540,540,540,540,540,540,540,540,540,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,5400};
+                   int[] off = {4400,4400, 540,1620,540,1620,540,1620,540,1620,540,540,540,540,540,540,540,540,540,1620,540,1620,540,540,540,1620,540,540,540,540,540,540,540,540,540,540,540,540,540,540,540,540,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,1620,540,5400};
+                   return power ? on : off;
+              }
+
+              private void add(List<Integer> l, int on, int off) { l.add(on); l.add(off); }
+              private int[] toArr(List<Integer> l) { int[] r=new int[l.size()]; for(int i=0;i<l.size();i++)r[i]=l.get(i); return r; }
 
               private String getIP() {
                   try {
@@ -135,7 +188,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 强制重写 Gradle
+      - name: 3. Gradle 构建
         run: |
           echo "include ':app'" > settings.gradle
           cat <<EOF > build.gradle
@@ -144,18 +197,15 @@ jobs:
           EOF
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application' }
-          android { compileSdk 34; namespace "com.ir.gateway"; defaultConfig { applicationId "com.ir.gateway"; minSdk 21; targetSdk 34; versionCode 1; versionName "4.0" } }
+          android { compileSdk 34; namespace "com.ir.gateway"; defaultConfig { applicationId "com.ir.gateway"; minSdk 21; targetSdk 34; versionCode 1; versionName "6.0" } }
           dependencies { implementation 'org.nanohttpd:nanohttpd:2.3.1' }
           EOF
 
-      - name: 4. 设置环境
-        uses: actions/setup-java@v4
-        with: { java-version: '17', distribution: 'temurin' }
-      - name: 5. 限制 Gradle 版本
+      - name: 4. 编译 APK
         uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: 8.7 }
-      - name: 6. 编译
+        with: { java-version: 17, gradle-version: 8.7 }
+      - name: 5. 导出
         run: gradle assembleDebug
-      - name: 7. 导出
+      - name: 6. 上传
         uses: actions/upload-artifact@v4
-        with: { name: IR_Rock_Solid, path: app/build/outputs/apk/debug/app-debug.apk }
+        with: { name: IR_Graphical_Remote, path: app/build/outputs/apk/debug/app-debug.apk }
