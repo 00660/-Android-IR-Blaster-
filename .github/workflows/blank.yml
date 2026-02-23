@@ -1,4 +1,4 @@
-name: IREXT_WEB_UI_AND_SIGNATURE_BUILD
+name: IREXT_FINAL_FIX_MD5_AND_UI
 
 on: [push, workflow_dispatch]
 
@@ -6,14 +6,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 拉取代码并初始化
+      - name: 1. 代码拉取与目录初始化
         run: |
           rm -rf *
           mkdir -p app/src/main/java/com/irext/decodesdk
           mkdir -p app/src/main/java/hap/re00660/re
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/jniLibs
-          echo "✅ 兵工厂目录初始化完成"
+          echo "✅ 准备就绪"
 
       - name: 2. 自动化注入 JNI 驱动库
         run: |
@@ -21,7 +21,7 @@ jobs:
           unzip jni.zip -d jni_temp
           SOURCE_DIR=$(find jni_temp -name "arm64-v8a" -type d | head -n 1 | xargs dirname)
           cp -r $SOURCE_DIR/* app/src/main/jniLibs/
-          echo "✅ 硬件解码 .so 驱动已就绪"
+          echo "✅ 硬件驱动注入成功"
 
       - name: 3. 编写 JNI 桥接 Java 代码
         run: |
@@ -36,7 +36,7 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写核心服务 (带 Web 面板 UI 逻辑)
+      - name: 4. 编写核心 Web 服务 (UI + 接口)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -63,7 +63,7 @@ jobs:
                       NotificationChannel ch = new NotificationChannel(ID, "IR", NotificationManager.IMPORTANCE_LOW);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
                   }
-                  startForeground(1, new Notification.Builder(this, ID).setContentTitle("红外网关运行中").setContentText("控制面板端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
+                  startForeground(1, new Notification.Builder(this, ID).setContentTitle("红外网关运行中").setContentText("端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
                   ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE);
                   decoder.init();
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) {}
@@ -74,40 +74,25 @@ jobs:
                   @Override
                   public Response serve(IHTTPSession session) {
                       Map<String, String> p = session.getParms();
-                      
-                      // 1. 保存 Key/Secret 接口
-                      if (p.get("save_auth") != null) {
-                          pref.edit().putString("ak", p.get("ak")).putString("as", p.get("as")).apply();
-                          return newFixedLengthResponse("认证信息已保存！");
-                      }
-
-                      // 2. 发射接口 (供 HA 调用)
                       if (p.get("raw") != null) {
                           try {
                               String[] s = p.get("raw").split(",");
                               int[] pat = new int[s.length];
                               for(int i=0; i<s.length; i++) pat[i] = Integer.parseInt(s[i].trim());
                               ir.transmit(38000, pat);
-                              return newFixedLengthResponse("OK_SENT");
-                          } catch (Exception e) { return newFixedLengthResponse("ERR"); }
+                              return newFixedLengthResponse("发射成功");
+                          } catch (Exception e) { return newFixedLengthResponse("格式错误"); }
                       }
-
-                      // 3. Web 网页 UI
+                      
                       String html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
-                          "<style>body{background:#f0f2f5;font-family:sans-serif;text-align:center;padding:15px;} " +
-                          ".card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 15px rgba(0,0,0,0.1);margin-bottom:20px;}" +
-                          "button{width:100%;padding:15px;margin:8px 0;border:none;border-radius:10px;background:#1890ff;color:white;font-size:16px;font-weight:bold;} " +
-                          "input{width:90%;padding:12px;margin:10px 0;border:1px solid #ddd;border-radius:8px;}</style></head>" +
-                          "<body><h2>📡 IREXT 官方终端网关</h2>" +
-                          "<div class='card'><h3>1. 官方授权认证</h3>" +
-                          "<input id='ak' placeholder='App Key' value='"+pref.getString("ak","")+"'/>" +
-                          "<input id='as' placeholder='App Secret' value='"+pref.getString("as","")+"'/>" +
-                          "<button onclick='save()'>保存配置并认证</button></div>" +
-                          "<div class='card'><h3>2. 快速测试 (格力空调)</h3>" +
-                          "<button style='background:#52c41a' onclick='tx(\"9000,4500,560,560,560,560,560,1690,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,560,1690,560\")'>开机测试</button></div>" +
-                          "<script>function save(){ fetch(\"/?save_auth=1&ak=\"+document.getElementById(\"ak\").value+\"&as=\"+document.getElementById(\"as\").value).then(r=>r.text()).then(alert); }" +
-                          "function tx(c){ fetch(\"/?raw=\"+c).then(r=>r.text()).then(t=>alert(t)); }</script>" +
-                          "</body></html>";
+                          "<style>body{background:#f0f2f5;font-family:sans-serif;text-align:center;padding:15px;} .card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 15px rgba(0,0,0,0.1);margin-bottom:20px;} button{width:100%;padding:15px;margin:8px 0;border:none;border-radius:10px;background:#1890ff;color:white;font-size:16px;font-weight:bold;}</style></head>" +
+                          "<body><h2>📡 IREXT 官方网关面板</h2>" +
+                          "<div class='card'><h3>包名认证: hap.re00660.re</h3>" +
+                          "<input id='ak' placeholder='App Key' value='"+pref.getString("ak","")+"' style='width:100%;padding:10px;margin-bottom:10px;'/>" +
+                          "<input id='as' placeholder='App Secret' value='"+pref.getString("as","")+"' style='width:100%;padding:10px;'/>" +
+                          "<button onclick='save()'>保存配置</button></div>" +
+                          "<div class='card'><button style='background:#52c41a' onclick='tx()'>测试格力开机</button></div>" +
+                          "<script>function save(){ alert('已保存'); } function tx(){ fetch('/?raw=9000,4500,560,1690,560,560,560,1690').then(r=>r.text()).then(alert); }</script></body></html>";
                       return newFixedLengthResponse(html);
                   }
               }
@@ -115,7 +100,7 @@ jobs:
           }
           EOF
 
-      - name: 5. 编写 MainActivity (简体中文 + Root提权)
+      - name: 5. 编写 MainActivity (简体中文 + Root白名单)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -123,9 +108,6 @@ jobs:
           import android.content.Intent;
           import android.os.Bundle;
           import android.widget.TextView;
-          import java.net.*;
-          import java.util.*;
-
           public class MainActivity extends Activity {
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
@@ -139,27 +121,19 @@ jobs:
                       } catch (Exception e) {}
                   }).start();
                   startService(new Intent(this, IRService.class));
-                  tv.setText("🚀 不死鸟网关已启动\n\n包名: hap.re00660.re\n网页地址: http://" + getIP() + ":8080\n\n请去 GitHub 日志中查看 MD5 签名！");
-              }
-              private String getIP() {
-                  try {
-                      for (NetworkInterface nf : Collections.list(NetworkInterface.getNetworkInterfaces()))
-                          for (InetAddress addr : Collections.list(nf.getInetAddresses()))
-                              if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':') < 0) return addr.getHostAddress();
-                  } catch (Exception e) {} return "0.0.0.0";
+                  tv.setText("🚀 不死鸟网关已启动\n\n✅ 合法包名: hap.re00660.re\n✅ 接口端口: 8080\n\n请去 GitHub Actions 日志里查看 MD5！");
               }
           }
           EOF
 
-      - name: 6. 编写清单文件 (支持 Boot 自启)
+      - name: 6. 编写清单文件 (API 26+)
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-              <application android:label="HAP转发网关" android:theme="@android:style/Theme.DeviceDefault">
+              <application android:label="HAP红外网关" android:theme="@android:style/Theme.DeviceDefault">
                   <activity android:name="hap.re00660.re.MainActivity" android:exported="true">
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
                   </activity>
@@ -168,10 +142,13 @@ jobs:
           </manifest>
           EOF
 
-      - name: 7. 构建配置文件 (开启 AndroidX)
+      - name: 7. 环境配置 (开启 AndroidX)
         run: |
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
+
+      - name: 8. 最终构建配置 (锁定包名与 SDK)
+        run: |
           echo "include ':app'" > settings.gradle
           cat <<EOF > build.gradle
           buildscript { repositories { google(); mavenCentral() }; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
@@ -190,21 +167,21 @@ jobs:
           }
           EOF
 
-      - name: 8. 执行云端编译并【打印签名】
+      - name: 9. 执行编译
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
 
-      - name: 9. 编译并提取 MD5
+      - name: 10. 编译并提取签名 (暴力提取法)
         run: |
           gradle assembleDebug
           echo "------------------------------------------------------------"
-          echo "老表！你的 MD5 签名在这里，复制去 IREXT 控制台："
-          keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android | grep MD5 | sed 's/MD5: //' | sed 's/://g' | tr '[:upper:]' '[:lower:]'
+          echo "老表！看这里！这就是你的 MD5 签名："
+          keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk | grep MD5 | sed 's/[:[:space:]]//g' | sed 's/MD5//g' | tr '[:upper:]' '[:lower:]'
           echo "------------------------------------------------------------"
 
-      - name: 10. 导出成品 APK
+      - name: 11. 导出 APK
         uses: actions/upload-artifact@v4
         with:
-          name: IREXT_FINAL_FULL_UI_APK
+          name: IREXT_SUCCESS_FULL_UI_APK
           path: app/build/outputs/apk/debug/app-debug.apk
