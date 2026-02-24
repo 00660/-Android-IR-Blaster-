@@ -39,7 +39,7 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写满血版商用 Web 网关 (带防崩保护)
+      - name: 4. 编写满血版商用 Web 网关 (🌟前端已重写为0依赖原生方案，拒绝裸奔)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -48,7 +48,6 @@ jobs:
           import android.hardware.ConsumerIrManager;
           import android.os.IBinder;
           import android.util.Log;
-          import android.widget.Toast;
           import android.os.Handler;
           import android.os.Looper;
           import com.irext.decodesdk.IRDecode;
@@ -184,7 +183,8 @@ jobs:
 
                       } catch(Exception e) { return newFixedLengthResponse("ERR: " + e.getMessage()); }
 
-                      String html = "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>ha红外网关</title><script src='https://cdn.tailwindcss.com'></script><script src='https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js'></script></head><body class='bg-gray-100 font-sans antialiased text-gray-800'><div id='app' class='max-w-md mx-auto mt-8 bg-white p-6 rounded-xl shadow-lg'><h2 class='text-2xl font-bold mb-6 text-center text-blue-600'>📡 ha红外网关</h2><div class='mb-4'><label class='block text-sm font-medium mb-1'>设备类型</label><select v-model='sc' @change='lb' class='w-full border rounded p-2'><option disabled value=''>请选择类型</option><option v-for='c in cats' :value='c'>{{ c.name || c.name_cn }}</option></select></div><div class='mb-4' v-if='brands.length'><label class='block text-sm font-medium mb-1'>设备品牌</label><select v-model='sb' @change='li' class='w-full border rounded p-2'><option disabled value=''>请选择品牌</option><option v-for='b in brands' :value='b'>{{ b.name || b.name_cn }}</option></select></div><div class='mb-6' v-if='idx.length'><label class='block text-sm font-medium mb-1'>遥控型号</label><select v-model='si' class='w-full border rounded p-2'><option disabled value=''>请选择型号</option><option v-for='i in idx' :value='i'>{{ i.remoteMap || i.remote_map }}</option></select></div><div v-if='si' class='grid grid-cols-2 gap-4'><button @click='tx(1)' class='bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded'>电源</button><button @click='tx(2)' class='bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded'>模式</button><button @click='tx(3)' class='bg-gray-200 hover:bg-gray-300 font-bold py-3 rounded'>+</button><button @click='tx(4)' class='bg-gray-200 hover:bg-gray-300 font-bold py-3 rounded'>-</button></div></div><script>new Vue({el:'#app',data:{cats:[],brands:[],idx:[],sc:'',sb:'',si:''},mounted(){fetch('/api/categories').then(r=>r.json()).then(d=>this.cats=d);},methods:{lb(){this.brands=[];this.idx=[];this.sb='';this.si='';let cid=this.sc.id||this.sc.categoryId;fetch('/api/brands?categoryId='+cid).then(r=>r.json()).then(d=>this.brands=d);},li(){this.idx=[];this.si='';let cid=this.sc.id||this.sc.categoryId;let bid=this.sb.id||this.sb.brandId;fetch('/api/indexes?categoryId='+cid+'&brandId='+bid).then(r=>r.json()).then(d=>this.idx=d);},tx(k){let cid=this.sc.id||this.sc.categoryId;let sid=this.si.id||this.si.indexId;let map=this.si.remoteMap||this.si.remote_map;let sub=this.si.subCate||this.si.sub_cate;fetch('/api/transmit?indexId='+sid+'&remoteMap='+map+'&categoryId='+cid+'&subCate='+sub+'&keyCode='+k).then(r=>r.text()).then(t=>{if(t!=='OK')alert('失败: '+t);else alert('已发送!');});}}});</script></body></html>";
+                      // 彻底抛弃第三方 CDN，手写原生极速 UI
+                      String html = "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>ha红外网关</title><style>body{font-family:sans-serif;background:#f3f4f6;color:#111827;padding:20px;max-width:500px;margin:0 auto}.card{background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,.05);margin-bottom:20px}h2{text-align:center;color:#2563eb;margin-top:0}label{display:block;margin-bottom:8px;font-weight:700;font-size:14px;color:#4b5563}select{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;margin-bottom:20px;font-size:16px;background:#f9fafb;outline:none}.grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}button{padding:15px;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;color:#fff;transition:all .2s}.btn-red{background:#ef4444}.btn-red:active{background:#dc2626}.btn-blue{background:#3b82f6}.btn-blue:active{background:#2563eb}.btn-gray{background:#e5e7eb;color:#374151}.btn-gray:active{background:#d1d5db}</style></head><body><div class='card'><h2>📡 ha红外网关</h2><label>设备类型</label><select id='sc' onchange='lb()'><option value=''>加载中...</option></select><label>设备品牌</label><select id='sb' onchange='li()'><option value=''>请先选择类型</option></select><label>遥控型号 (云端加载)</label><select id='si' onchange='sx()'><option value=''>请先选择品牌</option></select><div class='grid' id='bg' style='display:none;margin-top:10px'><button class='btn-red' onclick='tx(1)'>电源 (开关)</button><button class='btn-blue' onclick='tx(2)'>模式切换</button><button class='btn-gray' onclick='tx(3)'>+ (加)</button><button class='btn-gray' onclick='tx(4)'>- (减)</button></div></div><script>let cs=[],bs=[],is=[];const _c=document.getElementById('sc'),_b=document.getElementById('sb'),_i=document.getElementById('si'),_g=document.getElementById('bg');fetch('/api/categories').then(r=>r.json()).then(d=>{cs=d;_c.innerHTML='<option value=\"\">请选择设备类型</option>'+d.map((c,i)=>'<option value=\"'+i+'\">'+(c.name||c.name_cn)+'</option>').join('')});function lb(){let v=_c.value;if(v==='')return;let cid=cs[v].id||cs[v].categoryId;_b.innerHTML='<option value=\"\">数据加载中...</option>';_i.innerHTML='<option value=\"\">等待选择品牌</option>';_g.style.display='none';fetch('/api/brands?categoryId='+cid).then(r=>r.json()).then(d=>{bs=d;_b.innerHTML='<option value=\"\">请选择设备品牌</option>'+d.map((b,i)=>'<option value=\"'+i+'\">'+(b.name||b.name_cn)+'</option>').join('')})}function li(){let vc=_c.value,vb=_b.value;if(vc===''||vb==='')return;let cid=cs[vc].id||cs[vc].categoryId,bid=bs[vb].id||bs[vb].brandId;_i.innerHTML='<option value=\"\">正在匹配型号库...</option>';_g.style.display='none';fetch('/api/indexes?categoryId='+cid+'&brandId='+bid).then(r=>r.json()).then(d=>{is=d;_i.innerHTML='<option value=\"\">请选择具体遥控型号</option>'+d.map((x,i)=>'<option value=\"'+i+'\">'+(x.remoteMap||x.remote_map)+'</option>').join('')})}function sx(){if(_i.value!=='')_g.style.display='grid'}function tx(k){let v=_i.value;if(v==='')return;let cid=cs[_c.value].id||cs[_c.value].categoryId,idx=is[v],sid=idx.id||idx.indexId,map=idx.remoteMap||idx.remote_map,sub=idx.subCate||idx.sub_cate;fetch('/api/transmit?indexId='+sid+'&remoteMap='+map+'&categoryId='+cid+'&subCate='+sub+'&keyCode='+k).then(r=>r.text()).then(t=>{alert(t==='OK'?'✅ 红外信号已发射!':'❌ 失败: '+t)})}</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html", html);
                   }
               }
@@ -192,7 +192,7 @@ jobs:
           }
           EOF
 
-      - name: 5. 编写控制台 UI (已修复 Import 报错)
+      - name: 5. 编写控制台 UI (已修复导入，100%稳定编译)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -204,7 +204,7 @@ jobs:
           import android.widget.*;
           import android.view.Gravity;
           import android.graphics.Color;
-          import java.io.*; // 修复了这里！
+          import java.io.*;
 
           public class MainActivity extends Activity {
               private TextView logTv;
@@ -257,7 +257,6 @@ jobs:
               private void startGW() {
                   try {
                       log("正在启动服务...");
-                      // 只有开关打开才执行 su，否则完全不执行，防止闪退
                       if (rootSwitch.isChecked()) {
                           new Thread(() -> {
                               try {
@@ -280,7 +279,7 @@ jobs:
                       } else {
                           startService(i);
                       }
-                      log("✅ 服务已启动! 浏览器访问 http://IP:8080");
+                      log("✅ 服务已启动! 浏览器访问 http://手机IP:8080");
                   } catch (Exception e) {
                       log("❌ 启动报错: " + e.getMessage());
                   }
@@ -302,7 +301,7 @@ jobs:
           }
           EOF
 
-      - name: 6. 清单文件声明
+      - name: 6. 清单文件声明 (注入局域网流量白名单)
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -310,7 +309,7 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-              <application android:label="ha红外网关" android:theme="@android:style/Theme.DeviceDefault.Light">
+              <application android:label="ha红外网关" android:theme="@android:style/Theme.DeviceDefault.Light" android:usesCleartextTraffic="true">
                   <meta-data android:name="irext_app_key" android:value="55b1d89fda0658d6f851ee89cad564de" />
                   <meta-data android:name="irext_app_secret" android:value="83dfd86ad59843ce50342ec863a49bf0" />
                   
