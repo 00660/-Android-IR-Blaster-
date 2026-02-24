@@ -39,7 +39,7 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写满血版商用 Web 网关 (🌟前端已重写为0依赖原生方案，拒绝裸奔)
+      - name: 4. 编写满血版商用 Web 网关 (🌟精准键码映射 + 空调状态机)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -48,8 +48,6 @@ jobs:
           import android.hardware.ConsumerIrManager;
           import android.os.IBinder;
           import android.util.Log;
-          import android.os.Handler;
-          import android.os.Looper;
           import com.irext.decodesdk.IRDecode;
           import fi.iki.elonen.NanoHTTPD;
           import java.io.*;
@@ -77,13 +75,10 @@ jobs:
                       NotificationChannel ch = new NotificationChannel("IR", "ha红外网关", NotificationManager.IMPORTANCE_LOW);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
                       startForeground(1, new Notification.Builder(this, "IR").setContentTitle("ha红外网关在线").setContentText("API端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
-                  } catch(Throwable t) { Log.e("IRService", "通知栏创建失败", t); }
+                  } catch(Throwable t) {}
                   
-                  try {
-                      ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE);
-                  } catch(Throwable t) { Log.e("IRService", "红外服务获取失败", t); }
-
-                  try { decoder.init(); } catch(Throwable t) { Log.e("IRService", "JNI init failed", t); }
+                  try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
+                  try { decoder.init(); } catch(Throwable t) {}
                   
                   new Thread(() -> {
                       try {
@@ -93,7 +88,7 @@ jobs:
                               @Override public void onSignInFailed() { Log.e("IRext", "鉴权失败"); }
                               @Override public void onSignInError() { Log.e("IRext", "鉴权错误"); }
                           });
-                      } catch(Throwable e) { e.printStackTrace(); }
+                      } catch(Throwable e) {}
                   }).start();
 
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) {}
@@ -137,7 +132,15 @@ jobs:
                               byte[] binBytes = java.nio.file.Files.readAllBytes(binFile.toPath());
                               if (decoder.open(cid, subCate, binBytes, binBytes.length) >= 0) {
                                   int[] acStatus = null;
-                                  if (cid == 1) acStatus = new int[]{0, 8, 0, 0, 0, 0, 0}; 
+                                  // 空调精准状态获取 (从前端传入)
+                                  if (cid == 1) {
+                                      int ap = Integer.parseInt(p.get("ap")); // 电源
+                                      int am = Integer.parseInt(p.get("am")); // 模式
+                                      int at = Integer.parseInt(p.get("at")); // 温度
+                                      // 构造 [power, temp, mode, swing, speed, dir, 0]
+                                      acStatus = new int[]{ap, at, am, 0, 0, 0, 0}; 
+                                  }
+                                  
                                   int[] pattern = decoder.decode(keyCode, acStatus);
                                   decoder.close();
                                   if (pattern != null && pattern.length > 0) {
@@ -183,8 +186,8 @@ jobs:
 
                       } catch(Exception e) { return newFixedLengthResponse("ERR: " + e.getMessage()); }
 
-                      // 彻底抛弃第三方 CDN，手写原生极速 UI
-                      String html = "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>ha红外网关</title><style>body{font-family:sans-serif;background:#f3f4f6;color:#111827;padding:20px;max-width:500px;margin:0 auto}.card{background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,.05);margin-bottom:20px}h2{text-align:center;color:#2563eb;margin-top:0}label{display:block;margin-bottom:8px;font-weight:700;font-size:14px;color:#4b5563}select{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;margin-bottom:20px;font-size:16px;background:#f9fafb;outline:none}.grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}button{padding:15px;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;color:#fff;transition:all .2s}.btn-red{background:#ef4444}.btn-red:active{background:#dc2626}.btn-blue{background:#3b82f6}.btn-blue:active{background:#2563eb}.btn-gray{background:#e5e7eb;color:#374151}.btn-gray:active{background:#d1d5db}</style></head><body><div class='card'><h2>📡 ha红外网关</h2><label>设备类型</label><select id='sc' onchange='lb()'><option value=''>加载中...</option></select><label>设备品牌</label><select id='sb' onchange='li()'><option value=''>请先选择类型</option></select><label>遥控型号 (云端加载)</label><select id='si' onchange='sx()'><option value=''>请先选择品牌</option></select><div class='grid' id='bg' style='display:none;margin-top:10px'><button class='btn-red' onclick='tx(1)'>电源 (开关)</button><button class='btn-blue' onclick='tx(2)'>模式切换</button><button class='btn-gray' onclick='tx(3)'>+ (加)</button><button class='btn-gray' onclick='tx(4)'>- (减)</button></div></div><script>let cs=[],bs=[],is=[];const _c=document.getElementById('sc'),_b=document.getElementById('sb'),_i=document.getElementById('si'),_g=document.getElementById('bg');fetch('/api/categories').then(r=>r.json()).then(d=>{cs=d;_c.innerHTML='<option value=\"\">请选择设备类型</option>'+d.map((c,i)=>'<option value=\"'+i+'\">'+(c.name||c.name_cn)+'</option>').join('')});function lb(){let v=_c.value;if(v==='')return;let cid=cs[v].id||cs[v].categoryId;_b.innerHTML='<option value=\"\">数据加载中...</option>';_i.innerHTML='<option value=\"\">等待选择品牌</option>';_g.style.display='none';fetch('/api/brands?categoryId='+cid).then(r=>r.json()).then(d=>{bs=d;_b.innerHTML='<option value=\"\">请选择设备品牌</option>'+d.map((b,i)=>'<option value=\"'+i+'\">'+(b.name||b.name_cn)+'</option>').join('')})}function li(){let vc=_c.value,vb=_b.value;if(vc===''||vb==='')return;let cid=cs[vc].id||cs[vc].categoryId,bid=bs[vb].id||bs[vb].brandId;_i.innerHTML='<option value=\"\">正在匹配型号库...</option>';_g.style.display='none';fetch('/api/indexes?categoryId='+cid+'&brandId='+bid).then(r=>r.json()).then(d=>{is=d;_i.innerHTML='<option value=\"\">请选择具体遥控型号</option>'+d.map((x,i)=>'<option value=\"'+i+'\">'+(x.remoteMap||x.remote_map)+'</option>').join('')})}function sx(){if(_i.value!=='')_g.style.display='grid'}function tx(k){let v=_i.value;if(v==='')return;let cid=cs[_c.value].id||cs[_c.value].categoryId,idx=is[v],sid=idx.id||idx.indexId,map=idx.remoteMap||idx.remote_map,sub=idx.subCate||idx.sub_cate;fetch('/api/transmit?indexId='+sid+'&remoteMap='+map+'&categoryId='+cid+'&subCate='+sub+'&keyCode='+k).then(r=>r.text()).then(t=>{alert(t==='OK'?'✅ 红外信号已发射!':'❌ 失败: '+t)})}</script></body></html>";
+                      // 绝无依赖的纯原生前端，精准按照你的文档映射键码
+                      String html = "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>ha红外网关控制台</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#f4f6f8;color:#333;padding:15px;max-width:600px;margin:0 auto}.card{background:#fff;padding:25px;border-radius:16px;box-shadow:0 8px 24px rgba(149,157,165,.2)}h2{text-align:center;color:#2563eb;margin-top:0;font-size:22px;border-bottom:2px solid #e5e7eb;padding-bottom:15px}label{display:block;margin-bottom:8px;font-weight:600;color:#4b5563;font-size:14px}select{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;margin-bottom:20px;font-size:15px;background:#f9fafb;outline:none;transition:border .3s}select:focus{border-color:#2563eb}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(85px,1fr));gap:12px;margin-top:20px}button{padding:14px 5px;border:none;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:15px;font-weight:bold;cursor:pointer;border:1px solid #bfdbfe;transition:all .2s;box-shadow:0 2px 4px rgba(0,0,0,.05)}button:active{background:#2563eb;color:#fff;transform:scale(0.95)}.ac-status{background:#1e40af;color:#fff;padding:15px;border-radius:10px;text-align:center;margin-bottom:20px;font-weight:bold;font-size:16px;display:none;box-shadow:0 4px 12px rgba(30,64,175,.3)}.tag{background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px}</style></head><body><div class='card'><h2>📡 ha红外网关 <span class='tag'>商业版</span></h2><label>设备类型</label><select id='sc' onchange='lb()'><option value=''>加载中...</option></select><label>设备品牌</label><select id='sb' onchange='li()'><option value=''>请先选择类型</option></select><label>遥控型号 (云端自动获取)</label><select id='si' onchange='sx()'><option value=''>请先选择品牌</option></select><div id='st' class='ac-status'></div><div class='grid' id='bg'></div></div><script>const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置',14:'0',15:'1',16:'2',17:'3',18:'4',19:'5',20:'6',21:'7',22:'8',23:'9'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页',14:'0',15:'1',16:'2',17:'3',18:'4',19:'5',20:'6',21:'7',22:'8',23:'9'},'网络盒子':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'返回',9:'菜单',10:'主页'},'IPTV':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'},'DVD':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'播放',9:'暂停',10:'弹出',11:'回播',12:'快进',13:'菜单'},'风扇':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'风力+',7:'风力-',8:'摇头',9:'风力',10:'风类',11:'返回',12:'主页',13:'菜单'},'投影仪':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'缩小',9:'菜单',10:'放大',11:'返回',12:'主页',13:'菜单'},'音响':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'静音',9:'菜单',10:'电源',11:'返回',12:'主页',13:'菜单'},'灯':{0:'电源',1:'色彩1',2:'色彩2',3:'色彩3',4:'色彩4',5:'色彩0',6:'亮度+',7:'亮度-',8:'开',9:'流光',10:'关',11:'返回',12:'主页',13:'菜单'},'扫地机器人':{0:'电源',1:'前',2:'后',3:'左',4:'右',5:'起/停',6:'+',7:'-',8:'自动',9:'定点',10:'速度',11:'定时',12:'回充',13:'预约'},'空气净化器':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'离子',6:'+',7:'-',8:'自动',9:'风力',10:'模式',11:'定时',12:'灯光',13:'强力'},'Dyson系列':{0:'电源',1:'风力+',2:'风力-',3:'定时-',4:'定时+',5:'自动',6:'温度+',7:'温度-',8:'摇头',9:'扩散',10:'偏好',11:'定时',12:'睡眠',13:'制冷'},'相机':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'拍摄',6:'焦距+',7:'焦距-',8:'照相',9:'录像',10:'定时',11:'闪光',12:'微距',13:'夜景'},'热水器':{0:'电源',1:'温度+',2:'温度-',3:'定时-',4:'定时+',5:'自动',6:'容积+',7:'容积-',8:'增容',9:'保温',10:'定时',11:'节能',12:'变频',13:'数显'}};let cs=[],bs=[],is=[],ac={p:0,m:0,t:8};const _c=document.getElementById('sc'),_b=document.getElementById('sb'),_i=document.getElementById('si'),_g=document.getElementById('bg'),_s=document.getElementById('st');fetch('/api/categories').then(r=>r.json()).then(d=>{cs=d;_c.innerHTML='<option value=>请选择设备类型</option>'+d.map(function(c,i){return '<option value='+i+'>'+(c.name||c.name_cn)+'</option>'}).join('')});function lb(){let v=_c.value;if(v==='')return;let cid=cs[v].id||cs[v].categoryId;_b.innerHTML='<option value=>加载中...</option>';_i.innerHTML='';_g.innerHTML='';_s.style.display='none';fetch('/api/brands?categoryId='+cid).then(r=>r.json()).then(d=>{bs=d;_b.innerHTML='<option value=>请选择品牌</option>'+d.map(function(b,i){return '<option value='+i+'>'+(b.name||b.name_cn)+'</option>'}).join('')})}function li(){let vc=_c.value,vb=_b.value;if(vc===''||vb==='')return;let cid=cs[vc].id||cs[vc].categoryId,bid=bs[vb].id||bs[vb].brandId;_i.innerHTML='<option value=>搜索云端码库中...</option>';_g.innerHTML='';_s.style.display='none';fetch('/api/indexes?categoryId='+cid+'&brandId='+bid).then(r=>r.json()).then(d=>{is=d;_i.innerHTML='<option value=>请选择对应遥控型号</option>'+d.map(function(x,i){return '<option value='+i+'>'+(x.remoteMap||x.remote_map)+'</option>'}).join('')})}const modeMap=['制冷','制热','自动','送风','除湿'];function rs(){let n=cs[_c.value].name_cn||cs[_c.value].name;if(n==='空调'){_s.innerHTML='状态: '+(ac.p?'已开机':'已关机')+' | '+modeMap[ac.m]+' | '+(ac.t+16)+'°C'}}function sx(){let v=_i.value;if(v==='')return;let n=cs[_c.value].name_cn||cs[_c.value].name;let m=kmaps[n]||kmaps['电视机'];_g.innerHTML=Object.keys(m).map(function(k){return '<button onclick=tx('+k+')>'+m[k]+'</button>'}).join('');if(n==='空调'){_s.style.display='block';rs()}else{_s.style.display='none'}}function tx(k){let v=_i.value;if(v==='')return;let n=cs[_c.value].name_cn||cs[_c.value].name;if(n==='空调'){if(k==0)ac.p=1-ac.p;else if(k==1)ac.m=(ac.m+1)%5;else if(k==2||k==7)ac.t=Math.min(14,ac.t+1);else if(k==3||k==8)ac.t=Math.max(0,ac.t-1);rs()}let cid=cs[_c.value].id||cs[_c.value].categoryId,idx=is[v],sid=idx.id||idx.indexId,map=idx.remoteMap||idx.remote_map,sub=idx.subCate||idx.sub_cate;fetch('/api/transmit?indexId='+sid+'&remoteMap='+map+'&categoryId='+cid+'&subCate='+sub+'&keyCode='+k+'&ap='+ac.p+'&am='+ac.m+'&at='+ac.t).then(r=>r.text()).then(t=>{if(t!=='OK')alert('发射失败: '+t)})}</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html", html);
                   }
               }
@@ -192,7 +195,7 @@ jobs:
           }
           EOF
 
-      - name: 5. 编写控制台 UI (已修复导入，100%稳定编译)
+      - name: 5. 编写控制台 UI (安卓本体无UI仅提供开关)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -239,7 +242,7 @@ jobs:
                   btnStart.setOnClickListener(v -> startGW());
                   layout.addView(btnStart);
                   
-                  // 3. 电池白名单按钮 (可选)
+                  // 3. 电池白名单按钮
                   Button btnBattery = new Button(this);
                   btnBattery.setText("申请后台保活 (推荐)");
                   btnBattery.setOnClickListener(v -> ignoreBattery());
@@ -268,7 +271,7 @@ jobs:
                                   p.waitFor();
                                   runOnUiThread(() -> log("Root 指令执行完毕"));
                               } catch(Exception e) {
-                                  runOnUiThread(() -> log("Root 失败(不影响正常使用): " + e.getMessage()));
+                                  runOnUiThread(() -> log("Root 失败(不影响正常使用)"));
                               }
                           }).start();
                       }
@@ -279,7 +282,7 @@ jobs:
                       } else {
                           startService(i);
                       }
-                      log("✅ 服务已启动! 浏览器访问 http://手机IP:8080");
+                      log("✅ 服务已启动! 局域网电脑/手机浏览器访问: http://该手机IP:8080");
                   } catch (Exception e) {
                       log("❌ 启动报错: " + e.getMessage());
                   }
@@ -291,7 +294,7 @@ jobs:
                       intent.setData(Uri.parse("package:" + getPackageName()));
                       startActivity(intent);
                   } catch(Exception e) {
-                      log("申请白名单失败: " + e.getMessage());
+                      log("申请白名单失败");
                   }
               }
 
@@ -301,7 +304,7 @@ jobs:
           }
           EOF
 
-      - name: 6. 清单文件声明 (注入局域网流量白名单)
+      - name: 6. 清单文件声明
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
