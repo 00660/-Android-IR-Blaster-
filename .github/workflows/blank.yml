@@ -1,4 +1,4 @@
-name: IREXT_PRIVATE_CLOUD_BUILD
+name: IREXT_LAN_SYNC_BUILD
 
 on: [push, workflow_dispatch]
 
@@ -11,9 +11,9 @@ jobs:
           rm -rf *
           mkdir -p app/src/main/java/hap/re00660/re
           mkdir -p app/src/main/res/layout
-          echo "✅ 准备就绪，已彻底抛弃 JNI/NDK"
+          echo "✅ 准备就绪"
 
-      - name: 2. 编写满血版商用 Web 网关 (🌟全面拥抱 Docker 算力，秒解发码)
+      - name: 2. 编写满血版商用 Web 网关 (🌟服务端存储 + HA 配置生成)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -27,6 +27,8 @@ jobs:
           import java.net.HttpURLConnection;
           import java.net.URL;
           import java.util.*;
+          import com.google.gson.Gson;
+          import com.google.gson.reflect.TypeToken;
           import com.google.gson.JsonObject;
           import com.google.gson.JsonParser;
           import com.google.gson.JsonArray;
@@ -34,13 +36,13 @@ jobs:
           public class IRService extends Service {
               private WebServer server;
               private ConsumerIrManager ir;
+              private SharedPreferences prefs;
+              private Gson gson = new Gson();
               
               private String APP_KEY = "55b1d89fda0658d6f851ee89cad564de";
               private String APP_SECRET = "83dfd86ad59843ce50342ec863a49bf0";
               private String dockerUrl = "http://127.0.0.1:8081";
-              
-              private String apiId = "";
-              private String apiToken = "";
+              private String apiId = "", apiToken = "";
 
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
@@ -55,30 +57,25 @@ jobs:
               @Override
               public void onCreate() {
                   super.onCreate();
+                  prefs = getSharedPreferences("IREXT_DEVICES", MODE_PRIVATE);
                   try {
                       NotificationChannel ch = new NotificationChannel("IR", "ha红外网关", NotificationManager.IMPORTANCE_LOW);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
-                      startForeground(1, new Notification.Builder(this, "IR").setContentTitle("私有云网关运行中").setContentText("API端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
+                      startForeground(1, new Notification.Builder(this, "IR").setContentTitle("网关运行中").setContentText("API端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
                   } catch(Throwable t) {}
-                  
                   try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) {}
               }
               
-              // 封装向 Docker 发送 POST 请求
               private String postJSON(String path, String jsonBody) {
                   try {
                       URL url = new URL(dockerUrl + path);
                       HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                       conn.setRequestMethod("POST");
                       conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                      conn.setConnectTimeout(5000);
-                      conn.setReadTimeout(5000);
+                      conn.setConnectTimeout(3000);
                       conn.setDoOutput(true);
-                      try(OutputStream os = conn.getOutputStream()) {
-                          os.write(jsonBody.getBytes("UTF-8"));
-                      }
-                      
+                      try(OutputStream os = conn.getOutputStream()) { os.write(jsonBody.getBytes("UTF-8")); }
                       InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
                       if (is == null) return "{}";
                       try(BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
@@ -87,12 +84,9 @@ jobs:
                           while((line = br.readLine()) != null) sb.append(line);
                           return sb.toString();
                       }
-                  } catch (Exception e) {
-                      return "{\"error\":\"" + e.getMessage() + "\"}";
-                  }
+                  } catch (Exception e) { return "{\"error\":\"" + e.getMessage() + "\"}"; }
               }
 
-              // 登录 Docker 容器获取 id 和 token
               private void loginPrivateCloud() {
                   new Thread(() -> {
                       String req = "{\"appKey\":\"" + APP_KEY + "\",\"appSecret\":\"" + APP_SECRET + "\",\"appType\":\"2\"}";
@@ -102,8 +96,7 @@ jobs:
                           JsonObject entity = root.getAsJsonObject("entity");
                           apiId = entity.get("id").getAsString();
                           apiToken = entity.get("token").getAsString();
-                          Log.d("IRext", "Docker登录成功! ID: " + apiId);
-                      } catch (Exception e) { Log.e("IRext", "Docker登录失败, 请检查IP地址"); }
+                      } catch (Exception e) { }
                   }).start();
               }
               
@@ -113,18 +106,47 @@ jobs:
                   public Response serve(IHTTPSession session) {
                       String uri = session.getUri();
                       Map<String, String> p = session.getParms();
+                      Method method = session.getMethod();
                       
                       try {
-                          // === 核心发射逻辑：请求 Docker 解析出波形，直接调用原生发射接口 ===
+                          // === 1. 设备列表管理 API (服务端存储) ===
+                          if ("/api/devices/list".equals(uri)) {
+                              String json = prefs.getString("list", "[]");
+                              return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+                          }
+                          
+                          if ("/api/devices/save".equals(uri) && Method.POST.equals(method)) {
+                              Integer contentLength = Integer.parseInt(session.getHeaders().get("content-length"));
+                              byte[] buffer = new byte[contentLength];
+                              session.getInputStream().read(buffer, 0, contentLength);
+                              String body = new String(buffer);
+                              
+                              String current = prefs.getString("list", "[]");
+                              JsonArray list = JsonParser.parseString(current).getAsJsonArray();
+                              list.add(JsonParser.parseString(body)); // 追加新设备
+                              prefs.edit().putString("list", list.toString()).apply();
+                              return newFixedLengthResponse("OK");
+                          }
+
+                          if ("/api/devices/delete".equals(uri)) {
+                              int index = Integer.parseInt(p.get("index"));
+                              String current = prefs.getString("list", "[]");
+                              JsonArray list = JsonParser.parseString(current).getAsJsonArray();
+                              JsonArray newList = new JsonArray();
+                              for(int i=0; i<list.size(); i++) if(i != index) newList.add(list.get(i));
+                              prefs.edit().putString("list", newList.toString()).apply();
+                              return newFixedLengthResponse("OK");
+                          }
+
+                          // === 2. 发射 API ===
                           if ("/api/transmit".equals(uri)) {
-                              if (ir == null || !ir.hasIrEmitter()) return newFixedLengthResponse("错误: 手机没有红外发射器");
-                              if (apiId.isEmpty()) return newFixedLengthResponse("错误: Docker私有云未连接，请先在APP内填对IP并启动");
+                              if (ir == null || !ir.hasIrEmitter()) return newFixedLengthResponse("错误: 手机无红外");
+                              if (apiId.isEmpty()) return newFixedLengthResponse("错误: Docker未连接");
                               
                               String idxId = p.get("indexId");
                               int cid = Integer.parseInt(p.get("categoryId"));
                               String keyCode = p.get("keyCode");
 
-                              // 构建发给 Docker 解码 API 的入参
                               JsonObject reqObj = new JsonObject();
                               reqObj.addProperty("id", apiId);
                               reqObj.addProperty("token", apiToken);
@@ -133,11 +155,10 @@ jobs:
                               reqObj.addProperty("directDecode", "0");
                               reqObj.addProperty("paraData", "0");
 
-                              // 动态挂载空调状态机数据
-                              if (cid == 1) { 
+                              if (cid == 1) { // 空调特殊处理
                                   JsonObject ac = new JsonObject();
                                   int ap = Integer.parseInt(p.get("ap")); 
-                                  ac.addProperty("acPower", ap == 1 ? "0" : "1"); // Docker规定 0为开启，1为关闭
+                                  ac.addProperty("acPower", ap == 1 ? "0" : "1");
                                   ac.addProperty("acMode", p.get("am"));
                                   ac.addProperty("acTemp", p.get("at"));
                                   ac.addProperty("acWindSpeed", "0");
@@ -147,57 +168,27 @@ jobs:
                               }
 
                               String res = postJSON("/irext-server/operation/decode", reqObj.toString());
-                              try {
-                                  JsonObject root = JsonParser.parseString(res).getAsJsonObject();
-                                  if (root.has("entity") && !root.get("entity").isJsonNull()) {
-                                      JsonArray arr = root.getAsJsonArray("entity");
-                                      int[] pattern = new int[arr.size()];
-                                      for (int i = 0; i < arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
-                                      
-                                      if (pattern.length > 0) {
-                                          // 智能匹配红外发射频率 (大部分为 38KHz)
-                                          int freq = 38000;
-                                          ConsumerIrManager.CarrierFrequencyRange[] ranges = ir.getCarrierFrequencies();
-                                          if (ranges != null && ranges.length > 0) {
-                                              boolean supported = false;
-                                              for (ConsumerIrManager.CarrierFrequencyRange r : ranges) {
-                                                  if (freq >= r.getMinFrequency() && freq <= r.getMaxFrequency()) { supported = true; break; }
-                                              }
-                                              if (!supported) freq = ranges[0].getMinFrequency();
-                                          }
-                                          ir.transmit(freq, pattern);
-                                          return newFixedLengthResponse("OK");
-                                      }
+                              JsonObject root = JsonParser.parseString(res).getAsJsonObject();
+                              if (root.has("entity") && !root.get("entity").isJsonNull()) {
+                                  JsonArray arr = root.getAsJsonArray("entity");
+                                  int[] pattern = new int[arr.size()];
+                                  for (int i = 0; i < arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
+                                  if (pattern.length > 0) {
+                                      int freq = 38000;
+                                      try { freq = ir.getCarrierFrequencies()[0].getMinFrequency(); } catch(Exception e){}
+                                      ir.transmit(freq, pattern);
+                                      return newFixedLengthResponse("OK");
                                   }
-                                  return newFixedLengthResponse("Docker返回码库为空: " + res);
-                              } catch(Exception e) { return newFixedLengthResponse("波形解析异常: " + e.getMessage()); }
+                              }
+                              return newFixedLengthResponse("Docker解码失败");
                           }
                           
-                          // 类型列表
-                          if ("/api/categories".equals(uri)) {
-                              String req = "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\",\"from\":\"0\",\"count\":\"200\"}";
-                              String res = postJSON("/irext-server/indexing/list_categories", req);
-                              JsonObject root = JsonParser.parseString(res).getAsJsonObject();
-                              String entity = root.has("entity") ? root.get("entity").toString() : "[]";
-                              return newFixedLengthResponse(Response.Status.OK, "application/json", entity);
-                          }
-                          
-                          // 品牌列表
-                          if ("/api/brands".equals(uri)) {
-                              String cid = p.get("categoryId");
-                              String req = "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\",\"categoryId\":\""+cid+"\",\"from\":\"0\",\"count\":\"500\"}";
-                              String res = postJSON("/irext-server/indexing/list_brands", req);
-                              JsonObject root = JsonParser.parseString(res).getAsJsonObject();
-                              String entity = root.has("entity") ? root.get("entity").toString() : "[]";
-                              return newFixedLengthResponse(Response.Status.OK, "application/json", entity);
-                          }
-
-                          // 索引列表
-                          if ("/api/indexes".equals(uri)) {
-                              String cid = p.get("categoryId");
-                              String bid = p.get("brandId");
-                              String req = "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\",\"categoryId\":\""+cid+"\",\"brandId\":\""+bid+"\",\"cityCode\":\"\",\"from\":\"0\",\"count\":\"500\"}";
-                              String res = postJSON("/irext-server/indexing/list_indexes", req);
+                          // === 3. 代理 Docker 列表请求 ===
+                          if ("/api/proxy".equals(uri)) {
+                              String path = p.get("path");
+                              String body = p.get("body");
+                              String fullBody = "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + body + "}";
+                              String res = postJSON(path, fullBody);
                               JsonObject root = JsonParser.parseString(res).getAsJsonObject();
                               String entity = root.has("entity") ? root.get("entity").toString() : "[]";
                               return newFixedLengthResponse(Response.Status.OK, "application/json", entity);
@@ -205,8 +196,36 @@ jobs:
 
                       } catch(Exception e) { return newFixedLengthResponse("ERR: " + e.getMessage()); }
 
-                      // Web前端UI (增加了完善的报错捕获，不再让你盲猜不亮灯原因)
-                      String html = "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>ha私有云红外网关</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#f4f6f8;color:#333;padding:15px;max-width:600px;margin:0 auto}.card{background:#fff;padding:25px;border-radius:16px;box-shadow:0 8px 24px rgba(149,157,165,.2)}h2{text-align:center;color:#2563eb;margin-top:0;font-size:22px;border-bottom:2px solid #e5e7eb;padding-bottom:15px}label{display:block;margin-bottom:8px;font-weight:600;color:#4b5563;font-size:14px}select{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;margin-bottom:20px;font-size:15px;background:#f9fafb;outline:none;transition:border .3s}select:focus{border-color:#2563eb}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(85px,1fr));gap:12px;margin-top:20px}button{padding:14px 5px;border:none;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:15px;font-weight:bold;cursor:pointer;border:1px solid #bfdbfe;transition:all .2s;box-shadow:0 2px 4px rgba(0,0,0,.05)}button:active{background:#2563eb;color:#fff;transform:scale(0.95)}.ac-status{background:#1e40af;color:#fff;padding:15px;border-radius:10px;text-align:center;margin-bottom:20px;font-weight:bold;font-size:16px;display:none;box-shadow:0 4px 12px rgba(30,64,175,.3)}.tag{background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px}</style></head><body><div class='card'><h2>📡 私有云红外网关 <span class='tag'>Docker直连版</span></h2><label>设备类型</label><select id='sc' onchange='lb()'><option value=''>加载中...</option></select><label>设备品牌</label><select id='sb' onchange='li()'><option value=''>请先选择类型</option></select><label>遥控型号</label><select id='si' onchange='sx()'><option value=''>请先选择品牌</option></select><div id='st' class='ac-status'></div><div class='grid' id='bg'></div></div><script>const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置',14:'0',15:'1',16:'2',17:'3',18:'4',19:'5',20:'6',21:'7',22:'8',23:'9'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页',14:'0',15:'1',16:'2',17:'3',18:'4',19:'5',20:'6',21:'7',22:'8',23:'9'},'网络盒子':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'返回',9:'菜单',10:'主页'},'IPTV':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'},'DVD':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'播放',9:'暂停',10:'弹出',11:'回播',12:'快进',13:'菜单'},'风扇':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'风力+',7:'风力-',8:'摇头',9:'风力',10:'风类',11:'返回',12:'主页',13:'菜单'},'投影仪':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'缩小',9:'菜单',10:'放大',11:'返回',12:'主页',13:'菜单'},'音响':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音量+',7:'音量-',8:'静音',9:'菜单',10:'电源',11:'返回',12:'主页',13:'菜单'},'灯':{0:'电源',1:'色彩1',2:'色彩2',3:'色彩3',4:'色彩4',5:'色彩0',6:'亮度+',7:'亮度-',8:'开',9:'流光',10:'关',11:'返回',12:'主页',13:'菜单'},'扫地机器人':{0:'电源',1:'前',2:'后',3:'左',4:'右',5:'起/停',6:'+',7:'-',8:'自动',9:'定点',10:'速度',11:'定时',12:'回充',13:'预约'},'空气净化器':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'离子',6:'+',7:'-',8:'自动',9:'风力',10:'模式',11:'定时',12:'灯光',13:'强力'},'Dyson系列':{0:'电源',1:'风力+',2:'风力-',3:'定时-',4:'定时+',5:'自动',6:'温度+',7:'温度-',8:'摇头',9:'扩散',10:'偏好',11:'定时',12:'睡眠',13:'制冷'},'相机':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'拍摄',6:'焦距+',7:'焦距-',8:'照相',9:'录像',10:'定时',11:'闪光',12:'微距',13:'夜景'},'热水器':{0:'电源',1:'温度+',2:'温度-',3:'定时-',4:'定时+',5:'自动',6:'容积+',7:'容积-',8:'增容',9:'保温',10:'定时',11:'节能',12:'变频',13:'数显'}};let cs=[],bs=[],is=[],ac={p:0,m:0,t:8};const _c=document.getElementById('sc'),_b=document.getElementById('sb'),_i=document.getElementById('si'),_g=document.getElementById('bg'),_s=document.getElementById('st');fetch('/api/categories').then(r=>r.json()).then(d=>{cs=d;_c.innerHTML='<option value=>请选择设备类型</option>'+d.map(function(c,i){return '<option value='+i+'>'+(c.name||c.name_cn)+'</option>'}).join('')}).catch(e=>alert('错误: 无法连接私有云'));function lb(){let v=_c.value;if(v==='')return;let cid=cs[v].id||cs[v].categoryId;_b.innerHTML='<option value=>加载中...</option>';_i.innerHTML='';_g.innerHTML='';_s.style.display='none';fetch('/api/brands?categoryId='+cid).then(r=>r.json()).then(d=>{bs=d;_b.innerHTML='<option value=>请选择品牌</option>'+d.map(function(b,i){return '<option value='+i+'>'+(b.name||b.name_cn)+'</option>'}).join('')})}function li(){let vc=_c.value,vb=_b.value;if(vc===''||vb==='')return;let cid=cs[vc].id||cs[vc].categoryId,bid=bs[vb].id||bs[vb].brandId;_i.innerHTML='<option value=>加载型号...</option>';_g.innerHTML='';_s.style.display='none';fetch('/api/indexes?categoryId='+cid+'&brandId='+bid).then(r=>r.json()).then(d=>{is=d;_i.innerHTML='<option value=>请选择对应遥控型号</option>'+d.map(function(x,i){return '<option value='+i+'>'+(x.remoteMap||x.remote_map)+'</option>'}).join('')})}const modeMap=['制冷','制热','自动','送风','除湿'];function rs(){let n=cs[_c.value].name_cn||cs[_c.value].name;if(n==='空调'){_s.innerHTML='状态: '+(ac.p?'已开机':'已关机')+' | '+modeMap[ac.m]+' | '+(ac.t+16)+'°C'}}function sx(){let v=_i.value;if(v==='')return;let n=cs[_c.value].name_cn||cs[_c.value].name;let m=kmaps[n]||kmaps['电视机'];_g.innerHTML=Object.keys(m).map(function(k){return '<button onclick=tx('+k+')>'+m[k]+'</button>'}).join('');if(n==='空调'){_s.style.display='block';rs()}else{_s.style.display='none'}}function tx(k){let v=_i.value;if(v==='')return;let n=cs[_c.value].name_cn||cs[_c.value].name;if(n==='空调'){if(k==0)ac.p=1-ac.p;else if(k==1)ac.m=(ac.m+1)%5;else if(k==2||k==7)ac.t=Math.min(14,ac.t+1);else if(k==3||k==8)ac.t=Math.max(0,ac.t-1);rs()}let cid=cs[_c.value].id||cs[_c.value].categoryId,idx=is[v],sid=idx.id||idx.indexId;fetch('/api/transmit?indexId='+sid+'&categoryId='+cid+'&keyCode='+k+'&ap='+ac.p+'&am='+ac.m+'&at='+ac.t).then(r=>r.text()).then(t=>{if(t!=='OK')alert('❌ 失败: '+t);else console.log('发码成功');}).catch(e=>alert('❌ 遇到异常: '+e))}</script></body></html>";
+                      // 🌟 终极 UI: 仪表盘 + 向导 + HA生成器
+                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:15px;margin:0;max-width:600px;margin:0 auto}.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:15px}h3{margin-top:0;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn{width:100%;padding:12px;border:none;border-radius:8px;font-size:15px;font-weight:bold;margin-top:10px;cursor:pointer;transition:all .2s}.btn:active{opacity:0.8}.btn-p{background:#1890ff;color:#fff}.btn-g{background:#52c41a;color:#fff}.btn-r{background:#ff4d4f;color:#fff}.btn-w{background:#f5f5f5;color:#666}.dev-item{display:flex;justify-content:space-between;align-items:center;background:#fafafa;padding:15px;border-radius:8px;margin-bottom:10px;border:1px solid #eee}.dev-item b{font-size:16px;color:#333}.dev-item span{color:#999;font-size:12px}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}select,input{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:6px;box-sizing:border-box}#views>div{display:none}#v_home{display:block}textarea{width:100%;height:150px;border:1px solid #ddd;border-radius:6px;padding:10px;font-family:monospace;font-size:12px;background:#f9f9f9}</style></head><body>" +
+                      "<div id='views'><div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:5px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
+                      "<div id='v_add'><div class='card'><h3>📡 添加新设备</h3><label>类型</label><select id='sc' onchange='lb()'></select><label>品牌</label><select id='sb' onchange='startMatch()'></select><button class='btn btn-w' onclick='goHome()'>返回列表</button></div></div>" +
+                      "<div id='v_match'><div class='card'><h3>⚡ 智能匹配向导</h3><div style='text-align:center;color:#666;margin:15px 0'>方案 <b id='midx' style='color:#1890ff;font-size:20px'>1</b> / <span id='mtotal'>0</span></div><h4 id='mname' style='text-align:center;color:#999;font-weight:normal'></h4><button class='btn btn-p' onclick='testPwr()'>📡 点击测试电源</button><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'><button class='btn btn-w' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应</button></div><button class='btn btn-w' style='margin-top:15px' onclick='goAdd()'>退出匹配</button></div></div>" +
+                      "<div id='v_save'><div class='card'><h3>💾 保存设备</h3><label>给设备起个名 (如: 主卧空调)</label><input id='d_name' placeholder='输入名称...'><button class='btn btn-g' onclick='doSave()'>确认保存</button><button class='btn btn-w' onclick='showMatchUI()'>返回测试</button></div></div>" +
+                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-w' style='width:auto;padding:5px 10px;font-size:12px' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-size:14px'></div><div class='panel' id='btns'></div><button class='btn btn-w' style='margin-top:20px' onclick='showHA()'>🛠️ 生成 HomeAssistant 配置</button><button class='btn btn-r' onclick='delDev()'>🗑️ 删除此设备</button></div></div>" +
+                      "<div id='v_ha'><div class='card'><h3>🛠️ HA 配置 <button class='btn-w' style='width:auto;padding:5px 10px' onclick='goCtrl()'>返回</button></h3><p style='font-size:12px;color:#666'>复制以下代码到 configuration.yaml，重启 HA 即可:</p><textarea id='ha_code'></textarea></div></div>" +
+                      "</div><script>" +
+                      "const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1;" +
+                      "function view(id){document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$(id).style.display='block'}" +
+                      "function loadDevs(){fetch('/api/devices/list').then(r=>r.json()).then(d=>{devs=d;let h='';d.forEach((x,i)=>{h+=`<div class='dev-item' onclick='openDev(${i})'><div><b>${x.name}</b><br><span>${x.brand} - ${x.cate}</span></div><b style='color:#ccc'>&gt;</b></div>`});if(d.length==0)h='<p style=\"text-align:center;color:#999;padding:20px\">暂无设备，请点击右上角添加</p>';$('dev_list').innerHTML=h})}" +
+                      "function goHome(){loadDevs();view('v_home')}" +
+                      "function goAdd(){view('v_add');if(cs.length==0)fetch('/api/proxy?path=/irext-server/indexing/list_categories&body=\"from\":\"0\",\"count\":\"200\"').then(r=>r.json()).then(d=>{cs=d;$('sc').innerHTML='<option>请选择类型</option>'+d.map((c,i)=>'<option value='+i+'>'+(c.name||c.name_cn)+'</option>')})}" +
+                      "function lb(){let i=$('sc').value;fetch('/api/proxy?path=/irext-server/indexing/list_brands&body=\"categoryId\":\"'+(cs[i].id||cs[i].categoryId)+'\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{bs=d;$('sb').innerHTML='<option>请选择品牌</option>'+d.map((b,i)=>'<option value='+i+'>'+(b.name||b.name_cn)+'</option>')})}" +
+                      "function startMatch(){let ci=$('sc').value,bi=$('sb').value;$('sb').disabled=true;fetch('/api/proxy?path=/irext-server/indexing/list_indexes&body=\"categoryId\":\"'+(cs[ci].id||cs[ci].categoryId)+'\",\"brandId\":\"'+(bs[bi].id||bs[bi].brandId)+'\",\"cityCode\":\"\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{is=d;curr=0;$('sb').disabled=false;showMatchUI()})}" +
+                      "function showMatchUI(){view('v_match');$('midx').innerText=curr+1;$('mtotal').innerText=is.length;$('mname').innerText=is[curr].remoteMap||is[curr].remote_map}" +
+                      "function testPwr(){tx(0, is[curr], cs[$('sc').value])}" +
+                      "function next(){if(curr<is.length-1){curr++;showMatchUI()}else{alert('已试完')}}" +
+                      "function preSave(){view('v_save');$('d_name').value=bs[$('sb').value].name_cn+' '+cs[$('sc').value].name_cn}" +
+                      "function doSave(){let d={name:$('d_name').value,cate:cs[$('sc').value].name_cn,brand:bs[$('sb').value].name_cn,idx:is[curr],cid:cs[$('sc').value].id||cs[$('sc').value].categoryId};fetch('/api/devices/save',{method:'POST',body:JSON.stringify(d)}).then(()=>{goHome()})}" +
+                      "function openDev(i){curDev=devs[i];curIdx=i;view('v_ctrl');$('c_title').innerText=curDev.name;renderPanel()}" +
+                      "function goCtrl(){view('v_ctrl')}" +
+                      "function delDev(){if(confirm('确定删除?'))fetch('/api/devices/delete?index='+curIdx).then(goHome)}" +
+                      "function renderPanel(){let n=curDev.cate;let h='';if(n==='空调'){h='<button class=\"btn btn-p\" onclick=\"fire(0)\">电源</button><button class=\"btn btn-w\" onclick=\"fire(1)\">模式</button><button class=\"btn\" onclick=\"fire(2)\">温度+</button><button class=\"btn\" onclick=\"fire(3)\">温度-</button><button class=\"btn\" onclick=\"fire(9)\">风速</button>';updateAcUI()}else{h='<button class=\"btn btn-p\" onclick=\"fire(0)\">电源</button><button class=\"btn\" onclick=\"fire(1)\">菜单</button><button class=\"btn\" onclick=\"fire(7)\">音量+</button><button class=\"btn\" onclick=\"fire(8)\">音量-</button><button class=\"btn\" onclick=\"fire(2)\">上</button><button class=\"btn\" onclick=\"fire(3)\">下</button><button class=\"btn\" onclick=\"fire(4)\">左</button><button class=\"btn\" onclick=\"fire(5)\">右</button><button class=\"btn btn-g\" onclick=\"fire(6)\">确认</button>';$('ac_st').innerText=curDev.idx.remoteMap}$('btns').innerHTML=h}" +
+                      "function updateAcUI(){$('ac_st').innerText=(ac.p?'开':'关')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'℃'}" +
+                      "function fire(k){tx(k, curDev.idx, {name_cn:curDev.cate, id:curDev.cid})}" +
+                      "function tx(k, idx, cateObj){let sid=idx.id||idx.indexId;if(cateObj.name_cn==='空调'){if(k==0)ac.p=1-ac.p;if(k==1)ac.m=(ac.m+1)%5;if(k==2)ac.t=Math.min(14,ac.t+1);if(k==3)ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch('/api/transmit?indexId='+sid+'&categoryId='+cateObj.id+'&keyCode='+k+'&ap='+ac.p+'&am='+ac.m+'&at='+ac.t).then(r=>r.text()).then(t=>{if(t!='OK')alert(t)})}" +
+                      "function showHA(){view('v_ha');let u=location.protocol+'//'+location.host;let n=curDev.name;let c=`rest_command:\n  ir_${n}_power:\n    url: \"${u}/api/transmit?indexId=${curDev.idx.id}&categoryId=${curDev.cid}&keyCode=0&ap=1&am=0&at=8\"\n    method: GET\n\nswitch:\n  - platform: template\n    switches:\n      ir_${n}:\n        turn_on:\n          service: rest_command.ir_${n}_power\n        turn_off:\n          service: rest_command.ir_${n}_power\n`;$('ha_code').value=c}" +
+                      "loadDevs();</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html", html);
                   }
               }
@@ -214,7 +233,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写控制台 UI (增加自定义 Docker 私有云 IP 绑定)
+      - name: 3. 编写控制台 UI
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -238,7 +257,6 @@ jobs:
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
                   prefs = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
-                  
                   LinearLayout layout = new LinearLayout(this);
                   layout.setOrientation(LinearLayout.VERTICAL);
                   layout.setPadding(50, 50, 50, 50);
@@ -251,7 +269,7 @@ jobs:
                   layout.addView(title);
                   
                   TextView ipLabel = new TextView(this);
-                  ipLabel.setText("\n👇 填入你的 Docker 私有云 API 地址:");
+                  ipLabel.setText("\n👇 填入 Docker 私有云 IP:");
                   layout.addView(ipLabel);
                   
                   ipInput = new EditText(this);
@@ -260,13 +278,11 @@ jobs:
                   layout.addView(ipInput);
 
                   rootSwitch = new Switch(this);
-                  rootSwitch.setText("启用 Root 增强模式 (非Root手机勿开)");
-                  rootSwitch.setChecked(false); 
-                  rootSwitch.setPadding(0, 30, 0, 30);
+                  rootSwitch.setText("启用 Root 增强模式");
                   layout.addView(rootSwitch);
 
                   Button btnStart = new Button(this);
-                  btnStart.setText("保存配置并启动网关");
+                  btnStart.setText("保存并启动网关");
                   btnStart.setBackgroundColor(Color.parseColor("#1890ff"));
                   btnStart.setTextColor(Color.WHITE);
                   btnStart.setOnClickListener(v -> startGW());
@@ -281,7 +297,6 @@ jobs:
                   logTv.setText("等待启动...");
                   logTv.setPadding(0, 30, 0, 0);
                   layout.addView(logTv);
-
                   setContentView(layout);
               }
 
@@ -289,8 +304,7 @@ jobs:
                   try {
                       String dockerIp = ipInput.getText().toString().trim();
                       prefs.edit().putString("docker_ip", dockerIp).apply();
-                      log("正在连接并获取 Docker 授权...");
-                      
+                      log("正在连接: " + dockerIp);
                       if (rootSwitch.isChecked()) {
                           new Thread(() -> {
                               try {
@@ -299,14 +313,9 @@ jobs:
                                   os.writeBytes("dumpsys deviceidle whitelist +" + getPackageName() + "\n");
                                   os.writeBytes("exit\n");
                                   os.flush();
-                                  p.waitFor();
-                                  runOnUiThread(() -> log("Root 指令执行完毕"));
-                              } catch(Exception e) {
-                                  runOnUiThread(() -> log("Root 失败(不影响正常使用)"));
-                              }
+                              } catch(Exception e) {}
                           }).start();
                       }
-
                       Intent i = new Intent(this, IRService.class);
                       i.putExtra("DOCKER_URL", dockerIp);
                       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -314,20 +323,12 @@ jobs:
                       } else {
                           startService(i);
                       }
-                      log("✅ 服务已启动! 局域网电脑/手机浏览器访问: http://此手机IP:8080");
-                  } catch (Exception e) {
-                      log("❌ 启动报错: " + e.getMessage());
-                  }
+                      log("✅ 启动成功! 访问 http://手机IP:8080");
+                  } catch (Exception e) { log("❌ 失败: " + e.getMessage()); }
               }
-
               private void ignoreBattery() {
-                  try {
-                      Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                      intent.setData(Uri.parse("package:" + getPackageName()));
-                      startActivity(intent);
-                  } catch(Exception e) { log("申请白名单失败"); }
+                  try { startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:"+getPackageName()))); } catch(Exception e){}
               }
-
               private void log(String msg) { logTv.setText(logTv.getText() + "\n" + msg); }
           }
           EOF
@@ -354,7 +355,7 @@ jobs:
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-      - name: 6. 最终构建配置 (移除破烂 SDK，只留 JSON 解析)
+      - name: 6. 最终构建配置
         run: |
           echo "include ':app'" > settings.gradle
           cat <<EOF > build.gradle
