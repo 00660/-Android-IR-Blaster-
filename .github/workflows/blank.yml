@@ -80,15 +80,12 @@ jobs:
                       startForeground(1, new Notification.Builder(this, "IR").setContentTitle("ha红外网关在线").setContentText("API端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
                   } catch(Throwable t) { Log.e("IRService", "通知栏创建失败", t); }
                   
-                  // 防闪退：检查是否有红外硬件
                   try {
                       ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE);
                   } catch(Throwable t) { Log.e("IRService", "红外服务获取失败", t); }
 
-                  // 防闪退：JNI 初始化放在 try 中
                   try { decoder.init(); } catch(Throwable t) { Log.e("IRService", "JNI init failed", t); }
                   
-                  // 防闪退：网络请求放在子线程
                   new Thread(() -> {
                       try {
                           webApis = WebAPIs.getInstance(APP_KEY, APP_SECRET);
@@ -103,10 +100,6 @@ jobs:
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) {}
               }
 
-              private void showToast(String msg) {
-                  new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_SHORT).show());
-              }
-
               private class WebServer extends NanoHTTPD {
                   public WebServer(int port) { super(port); }
                   @Override
@@ -115,8 +108,6 @@ jobs:
                       Map<String, String> p = session.getParms();
                       
                       try {
-                          // API 部分保持不变，逻辑同上，省略部分重复代码以防脚本过长...
-                          // 这里只写核心的 Transmit 部分，其他 API 照旧
                           if ("/api/transmit".equals(uri)) {
                               if (ir == null || !ir.hasIrEmitter()) return newFixedLengthResponse("错误: 手机没有红外发射器");
                               
@@ -158,7 +149,6 @@ jobs:
                               return newFixedLengthResponse("解码失败");
                           }
                           
-                          // API: Categories, Brands, Indexes 逻辑与之前完全一致，此处为确保编译通过简写
                           if (webApis != null && "/api/categories".equals(uri)) {
                               CompletableFuture<String> f = new CompletableFuture<>();
                               webApis.listCategories(0, 200, new WebAPICallbacks.ListCategoriesCallback() {
@@ -168,7 +158,6 @@ jobs:
                               });
                               return newFixedLengthResponse(Response.Status.OK, "application/json", f.get());
                           }
-                          // ... (Brands 和 Indexes 逻辑同理，WebUI 前端请求会自动触发)
                           
                           if (webApis != null && "/api/brands".equals(uri)) {
                               int cid = Integer.parseInt(p.get("categoryId"));
@@ -195,7 +184,6 @@ jobs:
 
                       } catch(Exception e) { return newFixedLengthResponse("ERR: " + e.getMessage()); }
 
-                      // 统一返回 Web UI
                       String html = "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>ha红外网关</title><script src='https://cdn.tailwindcss.com'></script><script src='https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js'></script></head><body class='bg-gray-100 font-sans antialiased text-gray-800'><div id='app' class='max-w-md mx-auto mt-8 bg-white p-6 rounded-xl shadow-lg'><h2 class='text-2xl font-bold mb-6 text-center text-blue-600'>📡 ha红外网关</h2><div class='mb-4'><label class='block text-sm font-medium mb-1'>设备类型</label><select v-model='sc' @change='lb' class='w-full border rounded p-2'><option disabled value=''>请选择类型</option><option v-for='c in cats' :value='c'>{{ c.name || c.name_cn }}</option></select></div><div class='mb-4' v-if='brands.length'><label class='block text-sm font-medium mb-1'>设备品牌</label><select v-model='sb' @change='li' class='w-full border rounded p-2'><option disabled value=''>请选择品牌</option><option v-for='b in brands' :value='b'>{{ b.name || b.name_cn }}</option></select></div><div class='mb-6' v-if='idx.length'><label class='block text-sm font-medium mb-1'>遥控型号</label><select v-model='si' class='w-full border rounded p-2'><option disabled value=''>请选择型号</option><option v-for='i in idx' :value='i'>{{ i.remoteMap || i.remote_map }}</option></select></div><div v-if='si' class='grid grid-cols-2 gap-4'><button @click='tx(1)' class='bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded'>电源</button><button @click='tx(2)' class='bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded'>模式</button><button @click='tx(3)' class='bg-gray-200 hover:bg-gray-300 font-bold py-3 rounded'>+</button><button @click='tx(4)' class='bg-gray-200 hover:bg-gray-300 font-bold py-3 rounded'>-</button></div></div><script>new Vue({el:'#app',data:{cats:[],brands:[],idx:[],sc:'',sb:'',si:''},mounted(){fetch('/api/categories').then(r=>r.json()).then(d=>this.cats=d);},methods:{lb(){this.brands=[];this.idx=[];this.sb='';this.si='';let cid=this.sc.id||this.sc.categoryId;fetch('/api/brands?categoryId='+cid).then(r=>r.json()).then(d=>this.brands=d);},li(){this.idx=[];this.si='';let cid=this.sc.id||this.sc.categoryId;let bid=this.sb.id||this.sb.brandId;fetch('/api/indexes?categoryId='+cid+'&brandId='+bid).then(r=>r.json()).then(d=>this.idx=d);},tx(k){let cid=this.sc.id||this.sc.categoryId;let sid=this.si.id||this.si.indexId;let map=this.si.remoteMap||this.si.remote_map;let sub=this.si.subCate||this.si.sub_cate;fetch('/api/transmit?indexId='+sid+'&remoteMap='+map+'&categoryId='+cid+'&subCate='+sub+'&keyCode='+k).then(r=>r.text()).then(t=>{if(t!=='OK')alert('失败: '+t);else alert('已发送!');});}}});</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html", html);
                   }
@@ -204,7 +192,7 @@ jobs:
           }
           EOF
 
-      - name: 5. 编写控制台 UI (增加手动 Root 开关，防闪退)
+      - name: 5. 编写控制台 UI (已修复 Import 报错)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -216,6 +204,7 @@ jobs:
           import android.widget.*;
           import android.view.Gravity;
           import android.graphics.Color;
+          import java.io.*; // 修复了这里！
 
           public class MainActivity extends Activity {
               private TextView logTv;
@@ -268,10 +257,10 @@ jobs:
               private void startGW() {
                   try {
                       log("正在启动服务...");
+                      // 只有开关打开才执行 su，否则完全不执行，防止闪退
                       if (rootSwitch.isChecked()) {
                           new Thread(() -> {
                               try {
-                                  // 只有开关打开才执行 su
                                   Process p = Runtime.getRuntime().exec("su");
                                   DataOutputStream os = new DataOutputStream(p.getOutputStream());
                                   os.writeBytes("dumpsys deviceidle whitelist +" + getPackageName() + "\n");
