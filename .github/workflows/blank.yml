@@ -1,4 +1,4 @@
-name: IREXT_PRIVATE_CLOUD_FINAL_ULTIMATE
+name: IREXT_FULL_APP_INTEGRATION
 
 on: [push, workflow_dispatch]
 
@@ -10,10 +10,9 @@ jobs:
         run: |
           rm -rf *
           mkdir -p app/src/main/java/hap/re00660/re
-          mkdir -p app/src/main/res/layout
           echo "✅ 准备就绪"
 
-      - name: 2. 编写满血版商用 Web 网关 (🌟 彻底修复乱码 + 设备列表主页)
+      - name: 2. 编写 Web 网关服务 (核心逻辑保持稳定)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -21,25 +20,18 @@ jobs:
           import android.content.*;
           import android.hardware.ConsumerIrManager;
           import android.os.IBinder;
-          import android.util.Log;
           import fi.iki.elonen.NanoHTTPD;
           import java.io.*;
           import java.net.HttpURLConnection;
           import java.net.URL;
           import java.nio.charset.StandardCharsets;
           import java.util.*;
-          import com.google.gson.Gson;
-          import com.google.gson.JsonObject;
-          import com.google.gson.JsonParser;
-          import com.google.gson.JsonArray;
+          import com.google.gson.*;
 
           public class IRService extends Service {
               private WebServer server;
               private ConsumerIrManager ir;
               private SharedPreferences prefs;
-              
-              private String APP_KEY = "55b1d89fda0658d6f851ee89cad564de";
-              private String APP_SECRET = "83dfd86ad59843ce50342ec863a49bf0";
               private String dockerUrl = "http://127.0.0.1:8081";
               private String apiId = "", apiToken = "";
 
@@ -47,7 +39,6 @@ jobs:
               public int onStartCommand(Intent intent, int flags, int startId) {
                   if(intent != null && intent.getStringExtra("DOCKER_URL") != null) {
                       dockerUrl = intent.getStringExtra("DOCKER_URL");
-                      if(dockerUrl.endsWith("/")) dockerUrl = dockerUrl.substring(0, dockerUrl.length()-1);
                       loginPrivateCloud();
                   }
                   return START_STICKY;
@@ -60,7 +51,7 @@ jobs:
                   try {
                       NotificationChannel ch = new NotificationChannel("IR", "ha红外网关", NotificationManager.IMPORTANCE_LOW);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
-                      startForeground(1, new Notification.Builder(this, "IR").setContentTitle("网关运行中").setContentText("API: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
+                      startForeground(1, new Notification.Builder(this, "IR").setContentTitle("网关运行中").setSmallIcon(android.R.drawable.ic_dialog_info).build());
                   } catch(Throwable t) {}
                   try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) { }
@@ -74,7 +65,6 @@ jobs:
                       conn.setRequestMethod("POST");
                       conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
                       conn.setConnectTimeout(3000);
-                      conn.setReadTimeout(5000);
                       conn.setDoOutput(true);
                       try(OutputStream os = conn.getOutputStream()) { os.write(jsonBody.getBytes(StandardCharsets.UTF_8)); }
                       InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
@@ -84,13 +74,13 @@ jobs:
                           while((line = br.readLine()) != null) sb.append(line);
                           return sb.toString();
                       }
-                  } catch (Exception e) { return "{\"error\":\"" + e.getMessage() + "\"}"; }
+                  } catch (Exception e) { return "{}"; }
                   finally { if(conn!=null) conn.disconnect(); }
               }
 
               private void loginPrivateCloud() {
                   new Thread(() -> {
-                      String req = "{\"appKey\":\"" + APP_KEY + "\",\"appSecret\":\"" + APP_SECRET + "\",\"appType\":\"2\"}";
+                      String req = "{\"appKey\":\"55b1d89fda0658d6f851ee89cad564de\",\"appSecret\":\"83dfd86ad59843ce50342ec863a49bf0\",\"appType\":\"2\"}";
                       String res = postJSON("/irext-server/app/app_login", req);
                       try {
                           JsonObject root = JsonParser.parseString(res).getAsJsonObject();
@@ -106,45 +96,33 @@ jobs:
                   @Override
                   public Response serve(IHTTPSession session) {
                       String uri = session.getUri();
-                      Map<String, String> params = session.getParms();
-                      
+                      Map<String, String> p = session.getParms();
                       try {
-                          // 1. 获取设备列表
-                          if ("/api/devices/list".equals(uri)) {
-                              String list = prefs.getString("devices", "[]");
-                              return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", list);
-                          }
-                          // 2. 保存设备 (强行解析 JSON 避免乱码)
+                          if ("/api/devices/list".equals(uri)) return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", prefs.getString("devices", "[]"));
                           if ("/api/devices/save".equals(uri)) {
-                              Map<String, String> files = new HashMap<>();
-                              session.parseBody(files);
-                              String body = files.get("postData"); 
-                              if (body == null) return newFixedLengthResponse("Error: No data");
+                              Map<String, String> files = new HashMap<>(); session.parseBody(files);
                               JsonArray list = JsonParser.parseString(prefs.getString("devices", "[]")).getAsJsonArray();
-                              list.add(JsonParser.parseString(body));
+                              list.add(JsonParser.parseString(files.get("postData")));
                               prefs.edit().putString("devices", list.toString()).apply();
                               return newFixedLengthResponse("OK");
                           }
-                          // 3. 删除设备
                           if ("/api/devices/delete".equals(uri)) {
-                              int index = Integer.parseInt(params.get("index"));
+                              int index = Integer.parseInt(p.get("index"));
                               JsonArray list = JsonParser.parseString(prefs.getString("devices", "[]")).getAsJsonArray();
                               JsonArray newList = new JsonArray();
                               for(int i=0; i<list.size(); i++) if(i != index) newList.add(list.get(i));
                               prefs.edit().putString("devices", newList.toString()).apply();
                               return newFixedLengthResponse("OK");
                           }
-                          // 4. 发射红外
                           if ("/api/transmit".equals(uri)) {
-                              if (apiId.isEmpty()) return newFixedLengthResponse("Docker未连通");
                               JsonObject req = new JsonObject();
                               req.addProperty("id", apiId); req.addProperty("token", apiToken);
-                              req.addProperty("indexId", params.get("indexId")); req.addProperty("keyCode", params.get("keyCode"));
+                              req.addProperty("indexId", p.get("indexId")); req.addProperty("keyCode", p.get("keyCode"));
                               req.addProperty("directDecode", "0"); req.addProperty("paraData", "0");
-                              if ("1".equals(params.get("categoryId"))) { // 空调
+                              if ("1".equals(p.get("categoryId"))) {
                                   JsonObject ac = new JsonObject();
-                                  ac.addProperty("acPower", "1".equals(params.get("ap"))?"0":"1");
-                                  ac.addProperty("acMode", params.get("am")); ac.addProperty("acTemp", params.get("at"));
+                                  ac.addProperty("acPower", "1".equals(p.get("ap"))?"0":"1");
+                                  ac.addProperty("acMode", p.get("am")); ac.addProperty("acTemp", p.get("at"));
                                   ac.addProperty("acWindSpeed","0"); ac.addProperty("acWindDir","0"); ac.addProperty("changeWindDir","0");
                                   req.add("acStatus", ac);
                               }
@@ -157,47 +135,43 @@ jobs:
                                   ir.transmit(38000, pat);
                                   return newFixedLengthResponse("OK");
                               }
-                              return newFixedLengthResponse("发码失败");
+                              return newFixedLengthResponse("Fail");
                           }
-                          // 5. 代理请求
                           if ("/api/proxy".equals(uri)) {
-                              String req = "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + params.get("body") + "}";
-                              String res = postJSON(params.get("path"), req);
+                              String req = "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("body") + "}";
+                              String res = postJSON(p.get("path"), req);
                               JsonObject root = JsonParser.parseString(res).getAsJsonObject();
-                              String entity = root.has("entity")?root.get("entity").toString():"[]";
-                              return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", entity);
+                              return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", root.has("entity")?root.get("entity").toString():"[]");
                           }
-                      } catch(Exception e) { return newFixedLengthResponse("ERR:"+e.getMessage()); }
-
-                      // 🌟 终极 UI (原生精美版)
-                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>ha红外网关</title><style>body{font-family:-apple-system,sans-serif;background:#f0f2f5;padding:15px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer;transition:0.2s}.btn:active{opacity:0.7}.btn-p{background:#1890ff;color:#fff}.btn-g{background:#52c41a;color:#fff}.btn-w{background:#eee;color:#333}.btn-r{background:#ff4d4f;color:#fff}.dev-card{background:#fff;border:1px solid #e8e8e8;padding:15px;border-radius:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}.dev-card:active{background:#fafafa}.dev-info b{font-size:17px;color:#333}.dev-info div{font-size:13px;color:#999;margin-top:4px}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;font-size:16px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}textarea{width:100%;height:120px;font-family:monospace;font-size:12px;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px}</style></head><body>" +
+                      } catch(Exception e) { return newFixedLengthResponse("ERR"); }
+                      
+                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>ha红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:15px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:bold;margin-top:10px;cursor:pointer;transition:0.2s}.btn-p{background:#1890ff;color:#fff}.btn-g{background:#52c41a;color:#fff}.btn-w{background:#eee;color:#333}.btn-r{background:#ff4d4f;color:#fff}.dev-card{background:#fff;border:1px solid #e8e8e8;padding:15px;border-radius:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}.dev-info b{font-size:17px;color:#333}.dev-info div{font-size:13px;color:#999;margin-top:4px}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;font-size:16px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}textarea{width:100%;height:120px;font-family:monospace;font-size:12px;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px}</style></head><body>" +
                       "<div id='views'><div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
-                      "<div id='v_add'><div class='card'><h3>📡 第一步：选品牌</h3><label>家电类型</label><select id='sc' onchange='lb()'></select><label>家电品牌</label><select id='sb' onchange='startMatch()'></select><button class='btn btn-w' onclick='goHome()'>返回主页</button></div></div>" +
+                      "<div id='v_add'><div class='card'><h3>📡 第一步：选品牌</h3><label>类型</label><select id='sc' onchange='lb()'></select><label>品牌</label><select id='sb' onchange='startMatch()'></select><button class='btn btn-w' onclick='goHome()'>返回主页</button></div></div>" +
                       "<div id='v_match'><div class='card'><h3>⚡ 第二步：智能匹配</h3><div style='text-align:center;margin:20px 0;font-size:18px'>正在测试第 <b id='midx' style='color:#1890ff;font-size:28px'>1</b> 套库<br><small style='color:#999'>共 <span id='mtotal'>0</span> 套</small></div><button class='btn btn-p' style='height:80px' onclick='testPwr()'>📡 1. 测试电源键</button><div class='panel' style='grid-template-columns:1fr 1fr'><button class='btn btn-w' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应，保存</button></div></div></div>" +
-                      "<div id='v_save'><div class='card'><h3>💾 第三步：取名保存</h3><input id='d_name' placeholder='例如：客厅空调'><button class='btn btn-g' onclick='doSave()'>确认并存入手机</button></div></div>" +
-                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-w' style='width:auto;padding:5px 12px;font-size:13px' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-weight:bold'></div><div class='panel' id='btns'></div><button class='btn btn-w' style='margin-top:20px;border:1px dashed #ccc' onclick='showHA()'>🛠️ 导出 HA 配置</button><button class='btn btn-r' style='margin-top:10px;opacity:0.4' onclick='delDev()'>删除此设备</button></div></div>" +
-                      "<div id='v_ha'><div class='card'><h3>🛠️ HomeAssistant 配置</h3><textarea id='ha_code' readonly onclick='this.select()'></textarea><button class='btn btn-p' onclick='goCtrl()'>返回面板</button></div></div>" +
+                      "<div id='v_save'><div class='card'><h3>💾 第三步：取名</h3><input id='d_name'><button class='btn btn-g' onclick='doSave()'>确认保存到手机</button></div></div>" +
+                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-w' style='width:auto;padding:5px 12px;font-size:13px' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-weight:bold'></div><div class='panel' id='btns'></div><button class='btn btn-w' style='margin-top:20px;border:1px dashed #ccc' onclick='showHA()'>🛠️ HA 配置</button><button class='btn btn-r' style='margin-top:10px;opacity:0.4' onclick='delDev()'>删除设备</button></div></div>" +
+                      "<div id='v_ha'><div class='card'><h3>🛠️ HA 配置</h3><textarea id='ha_code' readonly></textarea><button class='btn btn-p' onclick='goCtrl()'>返回</button></div></div>" +
                       "</div><script>" +
                       "const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1;" +
                       "function view(id){document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$(id).style.display='block'}" +
                       "function loadDevs(){fetch('/api/devices/list').then(r=>r.json()).then(d=>{devs=d;let h='';d.forEach((x,i)=>{h+=`<div class='dev-card' onclick='openDev(${i})'><div class='dev-info'><b>${x.name}</b><div>${x.brand} | ${x.cate}</div></div><b style='color:#ddd'>&gt;</b></div>`});$('dev_list').innerHTML=h||'<div style=\"text-align:center;padding:40px;color:#999\">还没有设备，点击右上角添加</div>'})}" +
-                      "function goHome(){loadDevs();view('v_home')}" +
-                      "function goAdd(){view('v_add');fetch('/api/proxy?path=/irext-server/indexing/list_categories&body=\"from\":\"0\",\"count\":\"100\"').then(r=>r.json()).then(d=>{cs=d;$('sc').innerHTML='<option>选择类型</option>'+d.map((c,i)=>'<option value='+i+'>'+(c.name||c.name_cn)+'</option>')})}" +
-                      "function lb(){fetch('/api/proxy?path=/irext-server/indexing/list_brands&body=\"categoryId\":\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{bs=d;$('sb').innerHTML='<option>选择品牌</option>'+d.map((b,i)=>'<option value='+i+'>'+(b.name||b.name_cn)+'</option>')})}" +
+                      "function goHome(){loadDevs();view('v_home');if(window.Android)Android.refresh()}" + // 刷新App列表
+                      "function goAdd(){view('v_add');fetch('/api/proxy?path=/irext-server/indexing/list_categories&body=\"from\":\"0\",\"count\":\"100\"').then(r=>r.json()).then(d=>{cs=d;$('sc').innerHTML='<option>选择类型</option>'+d.map((c,i)=>'<option value='+i+'>'+(c.name_cn||c.name)+'</option>')})}" +
+                      "function lb(){fetch('/api/proxy?path=/irext-server/indexing/list_brands&body=\"categoryId\":\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{bs=d;$('sb').innerHTML='<option>选择品牌</option>'+d.map((b,i)=>'<option value='+i+'>'+(b.name_cn||b.name)+'</option>')})}" +
                       "function startMatch(){fetch('/api/proxy?path=/irext-server/indexing/list_indexes&body=\"categoryId\":\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\",\"brandId\":\"'+(bs[$('sb').value].id||bs[$('sb').value].brandId)+'\",\"cityCode\":\"\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{is=d;curr=0;showMatchUI()})}" +
                       "function showMatchUI(){view('v_match');$('midx').innerText=curr+1;$('mtotal').innerText=is.length}" +
                       "function testPwr(){tx(0, is[curr], cs[$('sc').value])}" +
                       "function next(){if(curr<is.length-1){curr++;showMatchUI()}else{alert('没方案了')}}" +
-                      "function preSave(){view('v_save');$('d_name').value=bs[$('sb').value].name_cn+' '+cs[$('sc').value].name_cn}" +
-                      "function doSave(){let d={name:$('d_name').value,cate:cs[$('sc').value].name_cn,brand:bs[$('sb').value].name_cn,idx:is[curr],cid:cs[$('sc').value].id||cs[$('sc').value].categoryId};fetch('/api/devices/save',{method:'POST',body:'postData='+JSON.stringify(d)}).then(()=>{goHome()})}" +
+                      "function preSave(){view('v_save');let c=cs[$('sc').value],b=bs[$('sb').value];$('d_name').value=(b.name_cn||b.name)+' '+(c.name_cn||c.name)}" +
+                      "function doSave(){let d={name:$('d_name').value,cate:cs[$('sc').value].name_cn||cs[$('sc').value].name,brand:bs[$('sb').value].name_cn||bs[$('sb').value].name,idx:is[curr],cid:cs[$('sc').value].id||cs[$('sc').value].categoryId};fetch('/api/devices/save',{method:'POST',body:'postData='+encodeURIComponent(JSON.stringify(d))}).then(()=>{goHome()})}" +
                       "function openDev(i){curDev=devs[i];curIdx=i;view('v_ctrl');$('c_title').innerText=curDev.name;renderPanel()}" +
-                      "function goCtrl(){view('v_ctrl')}" +
                       "function delDev(){if(confirm('删除?'))fetch('/api/devices/delete?index='+curIdx).then(goHome)}" +
-                      "function renderPanel(){let n=curDev.cate;let h='';if(n==='空调'){h='<button class=\"btn btn-p\" onclick=\"fire(0)\">电源</button><button class=\"btn btn-w\" onclick=\"fire(1)\">模式</button><button class=\"btn\" onclick=\"fire(2)\">温度+</button><button class=\"btn\" onclick=\"fire(3)\">温度-</button>';updateAcUI()}else{h='<button class=\"btn btn-p\" onclick=\"fire(0)\">电源</button><button class=\"btn btn-g\" onclick=\"fire(6)\">确认</button><button class=\"btn\" onclick=\"fire(2)\">上</button><button class=\"btn\" onclick=\"fire(3)\">下</button><button class=\"btn\" onclick=\"fire(4)\">左</button><button class=\"btn\" onclick=\"fire(5)\">右</button>';$('ac_st').innerText=curDev.idx.remoteMap}$('btns').innerHTML=h}" +
-                      "function updateAcUI(){$('ac_st').innerText=(ac.p?'已开启':'已关闭')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'°C'}" +
+                      "function renderPanel(){let n=curDev.cate;let h='';if(n==='空调'||curDev.cid==1){h='<button class=\"btn btn-p\" onclick=\"fire(0)\">电源</button><button class=\"btn btn-w\" onclick=\"fire(1)\">模式</button><button class=\"btn\" onclick=\"fire(2)\">温度+</button><button class=\"btn\" onclick=\"fire(3)\">温度-</button>';updateAcUI()}else{h='<button class=\"btn btn-p\" onclick=\"fire(0)\">电源</button><button class=\"btn btn-g\" onclick=\"fire(6)\">确认</button><button class=\"btn\" onclick=\"fire(2)\">上</button><button class=\"btn\" onclick=\"fire(3)\">下</button><button class=\"btn\" onclick=\"fire(4)\">左</button><button class=\"btn\" onclick=\"fire(5)\">右</button>';$('ac_st').innerText=curDev.idx.remoteMap}$('btns').innerHTML=h}" +
+                      "function updateAcUI(){$('ac_st').innerText=(ac.p?'开启':'关闭')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'°C'}" +
                       "function fire(k){tx(k, curDev.idx, {name_cn:curDev.cate, id:curDev.cid})}" +
-                      "function tx(k, idx, cateObj){if(cateObj.name_cn==='空调'){if(k==0)ac.p=1-ac.p;if(k==1)ac.m=(ac.m+1)%5;if(k==2)ac.t=Math.min(14,ac.t+1);if(k==3)ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch('/api/transmit?indexId='+(idx.id||idx.indexId)+'&categoryId='+cateObj.id+'&keyCode='+k+'&ap='+ac.p+'&am='+ac.m+'&at='+ac.t).then(r=>r.text())}" +
-                      "function showHA(){view('v_ha');let u=location.origin;let n=curDev.name.replace(/\\s+/g,'_');$('ha_code').value=`# HA REST 配置\nrest_command:\n  ir_${n}_cmd:\n    url: \"${u}/api/transmit?indexId=${curDev.idx.id}&categoryId=${curDev.cid}&keyCode={{key}}&ap=1&am=0&at=8\"\n    method: GET`;}\n goHome();</script></body></html>";
+                      "function tx(k, idx, cateObj){if(cateObj.name_cn==='空调'||cateObj.id==1){if(k==0)ac.p=1-ac.p;if(k==1)ac.m=(ac.m+1)%5;if(k==2)ac.t=Math.min(14,ac.t+1);if(k==3)ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch('/api/transmit?indexId='+(idx.id||idx.indexId)+'&categoryId='+cateObj.id+'&keyCode='+k+'&ap='+ac.p+'&am='+ac.m+'&at='+ac.t).then(r=>r.text())}\n" +
+                      "goHome();</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html; charset=UTF-8", html);
                   }
               }
@@ -205,7 +179,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写控制台 UI (显示 IP 地址)
+      - name: 3. 编写控制台 UI (🌟 增加添加设备内嵌 WebView)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -215,64 +189,110 @@ jobs:
           import android.net.Uri;
           import android.os.Bundle;
           import android.provider.Settings;
+          import android.view.*;
+          import android.webkit.*;
           import android.widget.*;
-          import android.view.Gravity;
           import android.graphics.Color;
-          import java.net.InetAddress;
-          import java.net.NetworkInterface;
-          import java.util.Collections;
-          import java.util.List;
+          import com.google.gson.*;
+          import java.net.*;
+          import java.util.*;
 
           public class MainActivity extends Activity {
-              private TextView logTv;
-              private EditText ipInput;
-              private SharedPreferences prefs;
+              private SharedPreferences dbPrefs, cfgPrefs;
+              private LinearLayout devListLayout, configLayout;
+              private WebView webView;
+              private boolean isWebMode = false;
 
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
-                  prefs = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
-                  LinearLayout layout = new LinearLayout(this);
-                  layout.setOrientation(LinearLayout.VERTICAL);
-                  layout.setPadding(50, 50, 50, 50);
-                  layout.setGravity(Gravity.CENTER_HORIZONTAL);
+                  dbPrefs = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
+                  cfgPrefs = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
 
+                  // 根布局
+                  FrameLayout root = new FrameLayout(this);
+                  
+                  // 1. 原生列表布局
+                  configLayout = new LinearLayout(this);
+                  configLayout.setOrientation(LinearLayout.VERTICAL);
+                  configLayout.setPadding(40, 40, 40, 40);
+                  
                   TextView title = new TextView(this);
-                  title.setText("📡 ha红外网关");
-                  title.setTextSize(26); title.setTextColor(Color.BLUE);
-                  layout.addView(title);
+                  title.setText("📡 ha红外网关"); title.setTextSize(24); title.setTextColor(Color.BLUE);
+                  configLayout.addView(title);
                   
-                  TextView myIp = new TextView(this);
-                  myIp.setText("\n👇 浏览器访问地址: \nhttp://" + getLocalIp() + ":8080");
-                  myIp.setTextSize(18); myIp.setGravity(Gravity.CENTER);
-                  layout.addView(myIp);
+                  Button btnAdd = new Button(this);
+                  btnAdd.setText("+ 添加红外设备 (在App内匹配)");
+                  btnAdd.setOnClickListener(v -> openAddDevice());
+                  configLayout.addView(btnAdd);
 
-                  TextView ipLabel = new TextView(this);
-                  ipLabel.setText("\n👇 Docker 私有云 IP:");
-                  layout.addView(ipLabel);
-                  
-                  ipInput = new EditText(this);
-                  ipInput.setSingleLine(true);
-                  ipInput.setText(prefs.getString("docker_ip", "http://192.168.1.100:8081"));
-                  layout.addView(ipInput);
+                  TextView myIp = new TextView(this);
+                  myIp.setText("\n浏览器访问地址: http://" + getLocalIp() + ":8080");
+                  configLayout.addView(myIp);
+
+                  EditText ipInput = new EditText(this);
+                  ipInput.setText(cfgPrefs.getString("docker_ip", "http://192.168.1.100:8081"));
+                  configLayout.addView(ipInput);
 
                   Button btnStart = new Button(this);
                   btnStart.setText("保存并启动网关");
-                  btnStart.setBackgroundColor(Color.parseColor("#1890ff"));
-                  btnStart.setTextColor(Color.WHITE);
-                  btnStart.setOnClickListener(v -> startGW());
-                  layout.addView(btnStart);
-                  
-                  Button btnBattery = new Button(this);
-                  btnBattery.setText("申请后台保活 (防杀进程)");
-                  btnBattery.setOnClickListener(v -> {
-                      try { startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:"+getPackageName()))); } catch(Exception e){}
+                  btnStart.setOnClickListener(v -> {
+                      cfgPrefs.edit().putString("docker_ip", ipInput.getText().toString()).apply();
+                      Intent i = new Intent(this, IRService.class);
+                      i.putExtra("DOCKER_URL", ipInput.getText().toString());
+                      startForegroundService(i);
                   });
-                  layout.addView(btnBattery);
+                  configLayout.addView(btnStart);
 
-                  logTv = new TextView(this);
-                  logTv.setText("\n等待启动...");
-                  layout.addView(logTv);
-                  setContentView(layout);
+                  devListLayout = new LinearLayout(this);
+                  devListLayout.setOrientation(LinearLayout.VERTICAL);
+                  configLayout.addView(devListLayout);
+                  root.addView(configLayout);
+
+                  // 2. 内嵌 WebView (默认隐藏)
+                  webView = new WebView(this);
+                  webView.getSettings().setJavaScriptEnabled(true);
+                  webView.getSettings().setDomStorageEnabled(true);
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.addJavascriptInterface(new Object() {
+                      @JavascriptInterface public void refresh() { runOnUiThread(() -> refreshList()); }
+                  }, "Android");
+                  webView.setVisibility(View.GONE);
+                  root.addView(webView);
+
+                  setContentView(root);
+                  refreshList();
+              }
+
+              private void openAddDevice() {
+                  isWebMode = true;
+                  configLayout.setVisibility(View.GONE);
+                  webView.setVisibility(View.VISIBLE);
+                  webView.loadUrl("http://127.0.0.1:8080"); // 加载内置网关的网页
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (isWebMode) {
+                      isWebMode = false;
+                      webView.setVisibility(View.GONE);
+                      configLayout.setVisibility(View.VISIBLE);
+                      refreshList();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+
+              private void refreshList() {
+                  devListLayout.removeAllViews();
+                  try {
+                      JsonArray list = JsonParser.parseString(dbPrefs.getString("devices", "[]")).getAsJsonArray();
+                      for (int i = 0; i < list.size(); i++) {
+                          JsonObject dev = list.get(i).getAsJsonObject();
+                          Button b = new Button(this);
+                          b.setText(dev.get("name").getAsString() + " (" + dev.get("brand").getAsString() + ")");
+                          devListLayout.addView(b);
+                      }
+                  } catch (Exception e) {}
               }
 
               private String getLocalIp() {
@@ -281,23 +301,11 @@ jobs:
                       for (NetworkInterface intf : interfaces) {
                           List<InetAddress> addrs = Collections.list(intf.getInetAddresses());
                           for (InetAddress addr : addrs) {
-                              if (!addr.isLoopbackAddress()) {
-                                  String sAddr = addr.getHostAddress();
-                                  if (sAddr.indexOf(':')<0) return sAddr;
-                              }
+                              if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':')<0) return addr.getHostAddress();
                           }
                       }
                   } catch (Exception e) {}
-                  return "未知IP";
-              }
-
-              private void startGW() {
-                  String dockerIp = ipInput.getText().toString().trim();
-                  prefs.edit().putString("docker_ip", dockerIp).apply();
-                  Intent i = new Intent(this, IRService.class);
-                  i.putExtra("DOCKER_URL", dockerIp);
-                  startForegroundService(i);
-                  logTv.setText("✅ 网关已启动!");
+                  return "127.0.0.1";
               }
           }
           EOF
