@@ -36,33 +36,51 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写满血版 Web 网关服务
+      - name: 4. 编写满血版商用 Web 网关与云端 API 服务
         run: |
-          cat <<EOF > app/src/main/java/hap/re00660/re/IRService.java
+          cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
           import android.app.*;
           import android.content.*;
           import android.hardware.ConsumerIrManager;
           import android.os.IBinder;
+          import android.util.Log;
           import com.irext.decodesdk.IRDecode;
           import fi.iki.elonen.NanoHTTPD;
-          import java.util.Map;
+          import java.io.*;
+          import java.util.*;
+          import java.util.concurrent.CompletableFuture;
+          import com.google.gson.Gson;
+          import net.irext.webapi.WebAPIs;
+          import net.irext.webapi.WebAPICallbacks;
+          import net.irext.webapi.model.*;
 
           public class IRService extends Service {
               private WebServer server;
               private ConsumerIrManager ir;
               private IRDecode decoder = new IRDecode();
-              private SharedPreferences pref;
+              private WebAPIs webApis;
+              private Gson gson = new Gson();
 
               @Override
               public void onCreate() {
                   super.onCreate();
-                  pref = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
-                  NotificationChannel ch = new NotificationChannel("IR", "HAP", NotificationManager.IMPORTANCE_LOW);
+                  NotificationChannel ch = new NotificationChannel("IR", "ha红外网关", NotificationManager.IMPORTANCE_LOW);
                   getSystemService(NotificationManager.class).createNotificationChannel(ch);
-                  startForeground(1, new Notification.Builder(this, "IR").setContentTitle("红外网关在线").setContentText("API端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
+                  startForeground(1, new Notification.Builder(this, "IR").setContentTitle("ha红外网关在线").setContentText("API端口: 8080").setSmallIcon(android.R.drawable.ic_dialog_info).build());
+                  
                   ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE);
                   decoder.init();
+                  
+                  try {
+                      webApis = WebAPIs.getInstance();
+                      webApis.signIn(this, new WebAPICallbacks.SignInCallback() {
+                          @Override public void onSignInSuccess(UserApp u) { Log.d("IRext", "鉴权成功"); }
+                          @Override public void onSignInFailed() { Log.e("IRext", "鉴权失败"); }
+                          @Override public void onSignInError() { Log.e("IRext", "鉴权错误"); }
+                      });
+                  } catch(Exception e) { e.printStackTrace(); }
+
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) {}
               }
 
@@ -70,58 +88,131 @@ jobs:
                   public WebServer(int port) { super(port); }
                   @Override
                   public Response serve(IHTTPSession session) {
+                      String uri = session.getUri();
                       Map<String, String> p = session.getParms();
-                      if (p.get("raw") != null) {
-                          try {
-                              String[] s = p.get("raw").split(",");
-                              int[] pat = new int[s.length];
-                              for(int i=0; i<s.length; i++) pat[i] = Integer.parseInt(s[i].trim());
-                              ir.transmit(38000, pat);
-                              return newFixedLengthResponse("OK");
-                          } catch (Exception e) { return newFixedLengthResponse("ERR"); }
-                      }
-                      String html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{background:#f0f2f5;font-family:sans-serif;text-align:center;padding:20px;} .card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 15px rgba(0,0,0,0.1);margin-bottom:20px;} button{width:100%;padding:15px;margin:10px 0;border:none;border-radius:10px;background:#1890ff;color:white;font-size:16px;font-weight:bold;}</style></head><body><h2>📡 IREXT 官方终端网关</h2><div class='card'><h3>授权认证</h3><input id='ak' placeholder='App Key' value='"+pref.getString("ak","")+"' style='width:100%;padding:10px;margin-bottom:10px;'/><input id='as' placeholder='App Secret' value='"+pref.getString("as","")+"' style='width:100%;padding:10px;'/><button onclick='save()'>保存配置</button></div><div class='card'><button style='background:#52c41a' onclick='tx()'>测试格力开机</button></div><script>function save(){ alert('配置已保存'); } function tx(){ fetch('/?raw=9000,4500,560,1690,560,560,560,1690').then(r=>r.text()).then(alert); }</script></body></html>";
-                      return newFixedLengthResponse(html);
+                      
+                      try {
+                          if ("/api/categories".equals(uri)) {
+                              CompletableFuture<String> f = new CompletableFuture<>();
+                              webApis.listCategories(new WebAPICallbacks.ListCategoriesCallback() {
+                                  public void onListCategoriesSuccess(List<Category> res) { f.complete(gson.toJson(res)); }
+                                  public void onListCategoriesFailed() { f.complete("[]"); }
+                                  public void onListCategoriesError() { f.complete("[]"); }
+                              });
+                              return newFixedLengthResponse(Response.Status.OK, "application/json", f.get());
+                          }
+                          if ("/api/brands".equals(uri)) {
+                              int cid = Integer.parseInt(p.get("categoryId"));
+                              CompletableFuture<String> f = new CompletableFuture<>();
+                              webApis.listBrands(cid, new WebAPICallbacks.ListBrandsCallback() {
+                                  public void onListBrandsSuccess(List<Brand> res) { f.complete(gson.toJson(res)); }
+                                  public void onListBrandsFailed() { f.complete("[]"); }
+                                  public void onListBrandsError() { f.complete("[]"); }
+                              });
+                              return newFixedLengthResponse(Response.Status.OK, "application/json", f.get());
+                          }
+                          if ("/api/indexes".equals(uri)) {
+                              int cid = Integer.parseInt(p.get("categoryId"));
+                              int bid = Integer.parseInt(p.get("brandId"));
+                              CompletableFuture<String> f = new CompletableFuture<>();
+                              webApis.listRemoteIndexes(cid, bid, "0", "0", new WebAPICallbacks.ListIndexesCallback() {
+                                  public void onListIndexesSuccess(List<RemoteIndex> res) { f.complete(gson.toJson(res)); }
+                                  public void onListIndexesFailed() { f.complete("[]"); }
+                                  public void onListIndexesError() { f.complete("[]"); }
+                              });
+                              return newFixedLengthResponse(Response.Status.OK, "application/json", f.get());
+                          }
+                          if ("/api/transmit".equals(uri)) {
+                              int idxId = Integer.parseInt(p.get("indexId"));
+                              String rMap = p.get("remoteMap");
+                              int cid = Integer.parseInt(p.get("categoryId"));
+                              int subCate = Integer.parseInt(p.get("subCate"));
+                              int keyCode = Integer.parseInt(p.get("keyCode"));
+
+                              File binFile = new File(getCacheDir(), rMap + ".bin");
+                              if (!binFile.exists()) {
+                                  CompletableFuture<Boolean> dl = new CompletableFuture<>();
+                                  webApis.downloadBin(rMap, idxId, new WebAPICallbacks.DownloadBinCallback() {
+                                      public void onDownloadBinSuccess(InputStream is) {
+                                          try {
+                                              FileOutputStream fos = new FileOutputStream(binFile);
+                                              byte[] buf = new byte[1024]; int l;
+                                              while((l = is.read(buf)) != -1) fos.write(buf, 0, l);
+                                              fos.close(); dl.complete(true);
+                                          } catch(Exception e) { dl.complete(false); }
+                                      }
+                                      public void onDownloadBinFailed() { dl.complete(false); }
+                                      public void onDownloadBinError() { dl.complete(false); }
+                                  });
+                                  if (!dl.get()) return newFixedLengthResponse("云端库下载失败");
+                              }
+
+                              byte[] binBytes = java.nio.file.Files.readAllBytes(binFile.toPath());
+                              if (decoder.open(cid, subCate, binBytes, binBytes.length) >= 0) {
+                                  int[] acStatus = null;
+                                  if (cid == 1) acStatus = new int[]{0, 8, 0, 0, 0, 0, 0}; // 0=PowerOn, 8=24°C, 0=Cool
+                                  int[] pattern = decoder.decode(keyCode, acStatus);
+                                  decoder.close();
+                                  if (pattern != null && pattern.length > 0) {
+                                      ir.transmit(38000, pattern);
+                                      return newFixedLengthResponse("OK");
+                                  }
+                              }
+                              return newFixedLengthResponse("底层解密执行失败");
+                          }
+                      } catch(Exception e) { return newFixedLengthResponse("ERR: " + e.getMessage()); }
+
+                      String html = "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>ha红外网关</title><script src='https://cdn.tailwindcss.com'></script><script src='https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js'></script></head><body class='bg-gray-100 font-sans antialiased text-gray-800'><div id='app' class='max-w-md mx-auto mt-8 bg-white p-6 rounded-xl shadow-lg'><h2 class='text-2xl font-bold mb-6 text-center text-blue-600'>📡 ha红外网关</h2><div class='mb-4'><label class='block text-sm font-medium mb-1'>设备类型</label><select v-model='sc' @change='lb' class='w-full border rounded p-2'><option disabled value=''>请选择类型</option><option v-for='c in cats' :value='c'>{{ c.name || c.name_cn }}</option></select></div><div class='mb-4' v-if='brands.length'><label class='block text-sm font-medium mb-1'>设备品牌</label><select v-model='sb' @change='li' class='w-full border rounded p-2'><option disabled value=''>请选择品牌</option><option v-for='b in brands' :value='b'>{{ b.name || b.name_cn }}</option></select></div><div class='mb-6' v-if='idx.length'><label class='block text-sm font-medium mb-1'>遥控型号 (云端索引)</label><select v-model='si' class='w-full border rounded p-2'><option disabled value=''>请选择型号</option><option v-for='i in idx' :value='i'>{{ i.remoteMap || i.remote_map }}</option></select></div><div v-if='si' class='grid grid-cols-2 gap-4'><button @click='tx(1)' class='bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded'>电源 (POWER)</button><button @click='tx(2)' class='bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded'>模式 (MODE)</button><button @click='tx(3)' class='bg-gray-200 hover:bg-gray-300 font-bold py-3 rounded'>温度+ / 音量+</button><button @click='tx(4)' class='bg-gray-200 hover:bg-gray-300 font-bold py-3 rounded'>温度- / 音量-</button></div></div><script>new Vue({el:'#app',data:{cats:[],brands:[],idx:[],sc:'',sb:'',si:''},mounted(){fetch('/api/categories').then(r=>r.json()).then(d=>this.cats=d);},methods:{lb(){this.brands=[];this.idx=[];this.sb='';this.si='';let cid=this.sc.id||this.sc.categoryId;fetch('/api/brands?categoryId='+cid).then(r=>r.json()).then(d=>this.brands=d);},li(){this.idx=[];this.si='';let cid=this.sc.id||this.sc.categoryId;let bid=this.sb.id||this.sb.brandId;fetch('/api/indexes?categoryId='+cid+'&brandId='+bid).then(r=>r.json()).then(d=>this.idx=d);},tx(k){let cid=this.sc.id||this.sc.categoryId;let sid=this.si.id||this.si.indexId;let map=this.si.remoteMap||this.si.remote_map;let sub=this.si.subCate||this.si.sub_cate;fetch('/api/transmit?indexId='+sid+'&remoteMap='+map+'&categoryId='+cid+'&subCate='+sub+'&keyCode='+k).then(r=>r.text()).then(t=>{if(t!=='OK')alert('失败: '+t);else alert('已发送!');});}}});</script></body></html>";
+                      return newFixedLengthResponse(Response.Status.OK, "text/html", html);
                   }
               }
               @Override public IBinder onBind(Intent intent) { return null; }
           }
           EOF
 
-      - name: 5. 编写入口与 Root 白名单
+      - name: 5. 编写无 Root 闪退的安全入口与保活
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
           import android.app.Activity;
           import android.content.Intent;
+          import android.net.Uri;
           import android.os.Bundle;
+          import android.os.PowerManager;
+          import android.provider.Settings;
           import android.widget.TextView;
           public class MainActivity extends Activity {
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
                   TextView tv = new TextView(this); tv.setTextSize(18); tv.setPadding(40,40,40,40); setContentView(tv);
-                  new Thread(() -> {
-                      try {
-                          Process p = Runtime.getRuntime().exec("su");
-                          java.io.DataOutputStream os = new java.io.DataOutputStream(p.getOutputStream());
-                          os.writeBytes("dumpsys deviceidle whitelist +" + getPackageName() + "\n");
-                          os.writeBytes("exit\n"); os.flush();
-                      } catch (Exception e) {}
-                  }).start();
+                  try {
+                      PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                      if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                          Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                          intent.setData(Uri.parse("package:" + getPackageName()));
+                          startActivity(intent);
+                      }
+                  } catch (Exception e) {}
+                  
                   startService(new Intent(this, IRService.class));
-                  tv.setText("🚀 网关启动成功\n\n✅ 简体中文 UI\n✅ JNI 本地解密\n✅ Root 系统白名单\n\n👇 签名信息在 GitHub 日志里！");
+                  tv.setText("🚀 ha红外网关 启动成功\n\n✅ 已移除 Root 依赖 (不再闪退)\n✅ 接入官方云端拉取协议\n✅ 商用级 Web UI\n\n👇 请在局域网内用浏览器访问: http://设备IP:8080");
               }
           }
           EOF
 
-      - name: 6. 清单文件声明 (API 26+)
+      - name: 6. 清单文件声明 (注入云端密钥与前后台权限)
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-              <application android:label="HAP红外网关" android:theme="@android:style/Theme.DeviceDefault">
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <application android:label="ha红外网关" android:theme="@android:style/Theme.DeviceDefault">
+                  <!-- 注入你的官方认证密钥 -->
+                  <meta-data android:name="irext_app_key" android:value="55b1d89fda0658d6f851ee89cad564de" />
+                  <meta-data android:name="irext_app_secret" android:value="83dfd86ad59843ce50342ec863a49bf0" />
+                  
                   <activity android:name="hap.re00660.re.MainActivity" android:exported="true">
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
                   </activity>
@@ -135,7 +226,7 @@ jobs:
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-      - name: 8. 最终构建配置 (锁定包名)
+      - name: 8. 最终构建配置 (增加 SDK 与序列化依赖)
         run: |
           echo "include ':app'" > settings.gradle
           cat <<EOF > build.gradle
@@ -152,6 +243,7 @@ jobs:
           dependencies {
               implementation 'org.nanohttpd:nanohttpd:2.3.1'
               implementation 'net.irext.webapi:irext-androidapi:1.5.2'
+              implementation 'com.google.code.gson:gson:2.10.1'
           }
           EOF
 
@@ -164,8 +256,7 @@ jobs:
         run: |
           gradle assembleDebug
           echo "************************************************************"
-          echo "老表！下面是 APK 的全部证书信息，自己翻一下 MD5 这一行："
-          # 直接显示，不加 grep 防止报错
+          echo "APK 的全部证书指纹如下："
           keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk
           echo "************************************************************"
 
