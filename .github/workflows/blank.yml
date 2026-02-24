@@ -36,7 +36,7 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写满血版商用 Web 网关与云端 API 服务
+      - name: 4. 编写满血版商用 Web 网关 (已修复 API 签名错误)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -61,6 +61,10 @@ jobs:
               private IRDecode decoder = new IRDecode();
               private WebAPIs webApis;
               private Gson gson = new Gson();
+              
+              // 你的 Key 配置
+              private static final String APP_KEY = "55b1d89fda0658d6f851ee89cad564de";
+              private static final String APP_SECRET = "83dfd86ad59843ce50342ec863a49bf0";
 
               @Override
               public void onCreate() {
@@ -73,9 +77,11 @@ jobs:
                   decoder.init();
                   
                   try {
-                      webApis = WebAPIs.getInstance();
+                      // 修复1: getInstance 需要传入 Key 和 Secret
+                      webApis = WebAPIs.getInstance(APP_KEY, APP_SECRET);
+                      
                       webApis.signIn(this, new WebAPICallbacks.SignInCallback() {
-                          @Override public void onSignInSuccess(UserApp u) { Log.d("IRext", "鉴权成功"); }
+                          @Override public void onSignInSuccess(UserApp u) { Log.d("IRext", "鉴权成功: " + u.getId()); }
                           @Override public void onSignInFailed() { Log.e("IRext", "鉴权失败"); }
                           @Override public void onSignInError() { Log.e("IRext", "鉴权错误"); }
                       });
@@ -94,7 +100,8 @@ jobs:
                       try {
                           if ("/api/categories".equals(uri)) {
                               CompletableFuture<String> f = new CompletableFuture<>();
-                              webApis.listCategories(new WebAPICallbacks.ListCategoriesCallback() {
+                              // 修复2: listCategories 必须要传分页参数 (from:0, count:200)
+                              webApis.listCategories(0, 200, new WebAPICallbacks.ListCategoriesCallback() {
                                   public void onListCategoriesSuccess(List<Category> res) { f.complete(gson.toJson(res)); }
                                   public void onListCategoriesFailed() { f.complete("[]"); }
                                   public void onListCategoriesError() { f.complete("[]"); }
@@ -104,7 +111,8 @@ jobs:
                           if ("/api/brands".equals(uri)) {
                               int cid = Integer.parseInt(p.get("categoryId"));
                               CompletableFuture<String> f = new CompletableFuture<>();
-                              webApis.listBrands(cid, new WebAPICallbacks.ListBrandsCallback() {
+                              // 修复3: listBrands 必须要传分页参数 (cid, from:0, count:200)
+                              webApis.listBrands(cid, 0, 200, new WebAPICallbacks.ListBrandsCallback() {
                                   public void onListBrandsSuccess(List<Brand> res) { f.complete(gson.toJson(res)); }
                                   public void onListBrandsFailed() { f.complete("[]"); }
                                   public void onListBrandsError() { f.complete("[]"); }
@@ -115,7 +123,8 @@ jobs:
                               int cid = Integer.parseInt(p.get("categoryId"));
                               int bid = Integer.parseInt(p.get("brandId"));
                               CompletableFuture<String> f = new CompletableFuture<>();
-                              webApis.listRemoteIndexes(cid, bid, "0", "0", new WebAPICallbacks.ListIndexesCallback() {
+                              // 修复4: listRemoteIndexes 需要传5个参数 (cid, bid, city, operator, page:0)
+                              webApis.listRemoteIndexes(cid, bid, "0", "0", 0, new WebAPICallbacks.ListIndexesCallback() {
                                   public void onListIndexesSuccess(List<RemoteIndex> res) { f.complete(gson.toJson(res)); }
                                   public void onListIndexesFailed() { f.complete("[]"); }
                                   public void onListIndexesError() { f.complete("[]"); }
@@ -150,7 +159,7 @@ jobs:
                               byte[] binBytes = java.nio.file.Files.readAllBytes(binFile.toPath());
                               if (decoder.open(cid, subCate, binBytes, binBytes.length) >= 0) {
                                   int[] acStatus = null;
-                                  if (cid == 1) acStatus = new int[]{0, 8, 0, 0, 0, 0, 0}; // 0=PowerOn, 8=24°C, 0=Cool
+                                  if (cid == 1) acStatus = new int[]{0, 8, 0, 0, 0, 0, 0}; 
                                   int[] pattern = decoder.decode(keyCode, acStatus);
                                   decoder.close();
                                   if (pattern != null && pattern.length > 0) {
@@ -195,12 +204,12 @@ jobs:
                   } catch (Exception e) {}
                   
                   startService(new Intent(this, IRService.class));
-                  tv.setText("🚀 ha红外网关 启动成功\n\n✅ 已移除 Root 依赖 (不再闪退)\n✅ 接入官方云端拉取协议\n✅ 商用级 Web UI\n\n👇 请在局域网内用浏览器访问: http://设备IP:8080");
+                  tv.setText("🚀 ha红外网关 启动成功\n\n✅ 已移除 Root 依赖\n✅ 接入官方云端 (API已修复)\n✅ 商用级 Web UI\n\n👇 请在局域网内用浏览器访问: http://设备IP:8080");
               }
           }
           EOF
 
-      - name: 6. 清单文件声明 (注入云端密钥与前后台权限)
+      - name: 6. 清单文件声明
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -209,7 +218,7 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
               <application android:label="ha红外网关" android:theme="@android:style/Theme.DeviceDefault">
-                  <!-- 注入你的官方认证密钥 -->
+                  <!-- 虽然代码里传了，但部分SDK版本可能还会读Manifest，留着保险 -->
                   <meta-data android:name="irext_app_key" android:value="55b1d89fda0658d6f851ee89cad564de" />
                   <meta-data android:name="irext_app_secret" android:value="83dfd86ad59843ce50342ec863a49bf0" />
                   
@@ -252,15 +261,10 @@ jobs:
         with:
           gradle-version: 8.7
 
-      - name: 10. 编译并【全量导出指纹信息】
-        run: |
-          gradle assembleDebug
-          echo "************************************************************"
-          echo "APK 的全部证书指纹如下："
-          keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk
-          echo "************************************************************"
+      - name: 10. 导出 APK
+        run: gradle assembleDebug
 
-      - name: 11. 导出 APK
+      - name: 11. 上传 APK
         uses: actions/upload-artifact@v4
         with:
           name: IREXT_SUCCESS_APK
