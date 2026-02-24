@@ -670,7 +670,7 @@ jobs:
 
                       for(int i=0; i<arr.size(); i++) {
                           JsonObject dev = arr.get(i).getAsJsonObject();
-                          
+                          final int index = i;
                           CardView card = createCard();
                           card.setCardElevation(2);
                           card.setRadius(12);
@@ -697,7 +697,7 @@ jobs:
 
                           card.addView(item);
                           card.setOnClickListener(v -> {
-                              curDevIndex = i;
+                              curDevIndex = index;
                               openWeb();
                           });
 
