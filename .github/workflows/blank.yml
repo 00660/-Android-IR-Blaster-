@@ -1,4 +1,4 @@
-name: IREXT_PRO_HA_SMART_SYNC
+name: IREXT_HA_PERFECT_CLIMATE
 
 on: [push, workflow_dispatch]
 
@@ -12,7 +12,7 @@ jobs:
           mkdir -p app/src/main/java/hap/re00660/re
           echo "✅ 初始化完成"
 
-      - name: 2. 编写高可靠网关服务 (🌟包含 智能HA多态生成器)
+      - name: 2. 编写后端服务 (🌟集成 HA 智能空调生成器)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -47,7 +47,7 @@ jobs:
               @Override
               public void onCreate() {
                   super.onCreate();
-                  db = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
+                  db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
                   try {
                       NotificationChannel ch = new NotificationChannel("IR", "ha红外网关", NotificationManager.IMPORTANCE_LOW);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
@@ -74,7 +74,7 @@ jobs:
                           while((line = br.readLine()) != null) sb.append(line);
                           return sb.toString();
                       }
-                  } catch (Exception e) { return "{}"; }
+                  } catch (Exception e) { return "{\"error\":\""+e.getMessage()+"\"}"; }
                   finally { if(conn!=null) conn.disconnect(); }
               }
 
@@ -149,17 +149,17 @@ jobs:
                               String result = obj.has("entity") ? obj.get("entity").toString() : "[]";
                               return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", result);
                           }
-                      } catch(Exception e) { return newFixedLengthResponse("{\"status\":-1}"); }
+                      } catch(Exception e) { return newFixedLengthResponse("ERR"); }
 
-                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>IR Pro</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}.btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}.btn-r{background:#ff4d4f;color:#fff;border:none}.dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}textarea{width:100%;height:300px;font-family:monospace;font-size:11px;background:#f9f9f9;padding:10px;border:1px solid #ddd}</style></head><body>" +
+                      // Web UI
+                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>IR Pro</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}.btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}.btn-r{background:#ff4d4f;color:#fff;border:none}.dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}textarea{width:100%;height:350px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#a9b7c6;padding:10px;border:1px solid #333;border-radius:8px}</style></head><body>" +
                       "<div id='views'><div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
                       "<div id='v_add'><div class='card'><h3><span onclick='goHome()' class='btn-back'>← 返回</span> 1. 选类型品牌</h3><select id='sc' onchange='lb()'></select><select id='sb' onchange='startMatch()'></select></div></div>" +
                       "<div id='v_match'><div class='card'><h3><span onclick='view(\"v_add\")' class='btn-back'>← 返回</span> 匹配中</h3><div style='text-align:center;margin:15px 0'>方案 <b id='midx' style='color:#1890ff;font-size:24px'>1</b> / <span id='mtotal'>0</span></div><button class='btn btn-p' style='height:80px' onclick='testPwr()'>📡 发送电源测试</button><div class='panel' style='grid-template-columns:1fr 1fr'><button class='btn' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应</button></div></div></div>" +
                       "<div id='v_save'><div class='card'><h3><span onclick='view(\"v_match\")' class='btn-back'>← 返回</span> 3. 取名保存</h3><input id='d_name'><button class='btn btn-g' onclick='doSave()'>确认保存到手机</button></div></div>" +
-                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-back' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-family:monospace'></div><div class='panel' id='btns'></div><div class='panel num-grid' id='num_btns' style='display:none'></div><button class='btn' style='background:#fdf2f2;color:#ef4444;border-color:#fecaca;margin-top:20px' onclick='showHA()'>🛠️ 导出智能 HA 配置</button><button class='btn btn-r' style='margin-top:10px;opacity:0.3' onclick='delDev()'>删除设备</button></div></div>" +
-                      "<div id='v_ha'><div class='card'><h3>🛠️ HA 配置 <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><p style='font-size:12px;color:#999;margin-top:0'>请复制以下 YAML 配置放入 Home Assistant：</p><textarea id='ha_code' readonly onclick='this.select()'></textarea></div></div></div><script>" +
-                      "const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'},'风扇':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'风+',7:'风-',8:'摇头',9:'风速',10:'风类'},'投影仪':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音+',7:'音-',8:'缩小',9:'菜单',10:'放大'},'音响':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'音+',7:'音-',8:'静音',9:'菜单'},'灯':{0:'电源',1:'色彩1',2:'色彩2',3:'色彩3',4:'色彩4',5:'色彩0',6:'亮+',7:'亮-',8:'开',9:'流光',10:'关'},'扫地机器人':{0:'电源',1:'前',2:'后',3:'左',4:'右',5:'起/停',6:'+',7:'-',8:'自动',9:'定点',10:'速度',11:'定时',12:'回充',13:'预约'},'空气净化器':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'离子',6:'+',7:'-',8:'自动',9:'风力',10:'模式',11:'定时',12:'灯光',13:'强力'},'Dyson系列':{0:'电源',1:'风+',2:'风-',3:'定时-',4:'定时+',5:'自动',6:'温+',7:'温-',8:'摇头',9:'扩散',10:'偏好',11:'定时',12:'睡眠',13:'制冷'},'相机':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'拍摄',6:'焦距+',7:'焦距-',8:'照相',9:'录像',10:'定时',11:'闪光',12:'微距',13:'夜景'},'热水器':{0:'电源',1:'温+',2:'温-',3:'定时-',4:'定时+',5:'自动',6:'容积+',7:'容积-',8:'增容',9:'保温',10:'定时',11:'节能',12:'变频',13:'数显'}};" +
-                      "const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1;" +
+                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-back' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-family:monospace'></div><div class='panel' id='btns'></div><div class='panel num-grid' id='num_btns' style='display:none'></div><button class='btn' style='background:#fdf2f2;color:#ef4444;border-color:#fecaca;margin-top:20px' onclick='showHA()'>🛠️ 生成 HA 配置</button><button class='btn btn-r' style='margin-top:10px;opacity:0.3' onclick='delDev()'>删除设备</button></div></div>" +
+                      "<div id='v_ha'><div class='card'><h3>🛠️ HA 配置 <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><p style='font-size:12px;color:#999;margin-top:0'>请将以下代码追加到 configuration.yaml 最底部 (不要缩进)：</p><textarea id='ha_code' readonly onclick='this.select()'></textarea></div></div></div><script>" +
+                      "const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'}};const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1;" +
                       "function view(id){document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$(id).style.display='block'}" +
                       "function loadDevs(){fetch('/api/list?t='+Date.now()).then(r=>r.json()).then(d=>{devs=d;let h='';d.forEach((x,i)=>{h+=`<div class='dev-card' onclick='openDev(${i})'><div><b>${x.name}</b><br><small>${x.brand} | ${x.cate}</small></div><b>&gt;</b></div>`});$('dev_list').innerHTML=h||'<p style=\"text-align:center;padding:40px;color:#999\">还没有设备</p>'})}" +
                       "function goHome(){loadDevs();view('v_home');if(window.Android)Android.refresh()}" +
@@ -173,9 +173,10 @@ jobs:
                       "function openDev(i){curDev=devs[i];curIdx=i;view('v_ctrl');$('c_title').innerText=curDev.name;renderPanel()}" +
                       "function delDev(){if(confirm('删除?'))fetch('/api/delete?i='+curIdx).then(goHome)}" +
                       "function goCtrl(){view('v_ctrl')}" +
-                      "function renderPanel(){let n=curDev.cate;let h='';let m=kmaps[n]||kmaps['电视机'];Object.keys(m).forEach(k=>{h+=`<button class='btn' onclick='fireTx(${k})'>${m[k]}</button>`});$('btns').innerHTML=h;if(n=='电视机'||n=='机顶盒'||n=='IPTV'){let nh='';for(let i=0;i<=9;i++){nh+=`<button class='btn' onclick='fireTx(${14+i})'>${i}</button>`}$('num_btns').innerHTML=nh;$('num_btns').style.display='grid'}else{$('num_btns').style.display='none'}if(n=='空调'||curDev.cid==1){updateAcUI();$('ac_st').style.display='block'}else{$('ac_st').style.display='none'}}" +
-                      "function updateAcUI(){$('ac_st').innerText=(ac.p?'已开启':'已关闭')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'°C'}" +
-                      "function showHA(){view('v_ha');let u=location.origin;let n=curDev.name.replace(/\\s+/g,'_');let cate=curDev.cate;let cid=curDev.cid;let id=curDev.idx.id||curDev.idx.indexId;let code='';if(cate==='空调'||cid==1){code=`# 1. 配合 HACS 的 climate_template 使用空调器\\nrest_command:\\n  ir_${n}_tx:\\n    url: \"${u}/api/tx?id=${id}&c=${cid}&k={{key}}&p={{p}}&m={{m}}&t={{t}}\"\\n    method: GET\\n\\nclimate:\\n  - platform: template\\n    name: \"${curDev.name}\"\\n    modes: [\"off\", \"cool\", \"heat\", \"auto\"]\\n    set_temperature:\\n      service: rest_command.ir_${n}_tx\\n      data:\\n        key: 2\\n        p: 0\\n        m: 0\\n        t: \"{{ (temperature - 16)|int }}\"\\n    set_hvac_mode:\\n      service: rest_command.ir_${n}_tx\\n      data:\\n        key: 0\\n        p: \"{{ 1 if hvac_mode == 'off' else 0 }}\"\\n        m: \"{{ 0 if hvac_mode == 'cool' else 1 }}\"\\n        t: 8`;}else if(cate==='电视机'||cate==='机顶盒'||cate==='投影仪'||cate==='音响'){code=`# 2. HA 媒体适配器 (Media Player)\\nrest_command:\\n  ir_${n}_pwr: { url: \"${u}/api/tx?id=${id}&c=${cid}&k=0&p=0&m=0&t=0\" }\\n  ir_${n}_mute: { url: \"${u}/api/tx?id=${id}&c=${cid}&k=1&p=0&m=0&t=0\" }\\n  ir_${n}_volup: { url: \"${u}/api/tx?id=${id}&c=${cid}&k=7&p=0&m=0&t=0\" }\\n  ir_${n}_voldn: { url: \"${u}/api/tx?id=${id}&c=${cid}&k=8&p=0&m=0&t=0\" }\\n\\nmedia_player:\\n  - platform: universal\\n    name: \"${curDev.name}\"\\n    commands:\\n      turn_on:\\n        service: rest_command.ir_${n}_pwr\\n      turn_off:\\n        service: rest_command.ir_${n}_pwr\\n      volume_up:\\n        service: rest_command.ir_${n}_volup\\n      volume_down:\\n        service: rest_command.ir_${n}_voldn\\n      volume_mute:\\n        service: rest_command.ir_${n}_mute`;}else if(cate==='风扇'){code=`# 3. HA 风扇\\nrest_command:\\n  ir_${n}_pwr: { url: \"${u}/api/tx?id=${id}&c=${cid}&k=0&p=0&m=0&t=0\" }\\n  ir_${n}_osc: { url: \"${u}/api/tx?id=${id}&c=${cid}&k=8&p=0&m=0&t=0\" }\\n\\nfan:\\n  - platform: template\\n    fans:\\n      ir_${n}:\\n        friendly_name: \"${curDev.name}\"\\n        turn_on:\\n          service: rest_command.ir_${n}_pwr\\n        turn_off:\\n          service: rest_command.ir_${n}_pwr\\n        oscillate:\\n          service: rest_command.ir_${n}_osc`;}else{code=`# 4. HA 普通开关\\nrest_command:\\n  ir_${n}_pwr: { url: \"${u}/api/tx?id=${id}&c=${cid}&k=0&p=0&m=0&t=0\" }\\n\\nswitch:\\n  - platform: template\\n    switches:\\n      ir_${n}:\\n        friendly_name: \"${curDev.name}\"\\n        turn_on:\\n          service: rest_command.ir_${n}_pwr\\n        turn_off:\\n          service: rest_command.ir_${n}_pwr`;}$('ha_code').value=code;}" +
+                      "function renderPanel(){let n=curDev.cate;let h='';let m=kmaps[n]||kmaps['电视机'];Object.keys(m).forEach(k=>{h+=`<button onclick='fireTx(${k})'>${m[k]}</button>`});$('btns').innerHTML=h;if(n=='电视机'||n=='机顶盒'||n=='IPTV'){let nh='';for(let i=0;i<=9;i++){nh+=`<button onclick='fireTx(${14+i})'>${i}</button>`}$('num_btns').innerHTML=nh;$('num_btns').style.display='grid'}else{$('num_btns').style.display='none'}if(n=='空调'||curDev.cid==1){updateAcUI();$('ac_st').style.display='block'}else{$('ac_st').style.display='none'}}" +
+                      "function updateAcUI(){$('ac_st').innerText=(ac.p?'ON':'OFF')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'°C'}" +
+                      // 🌟 核心：智能生成带状态记忆的 HA 配置
+                      "function showHA(){view('v_ha');let u='http://'+window.location.host;let id=curDev.idx.id||curDev.idx.indexId;let cid=curDev.cid;let safeName='ir_dev_'+id;let code='';if(cid==1||curDev.cate.includes('空调')){code=`# 1. 粘贴到 configuration.yaml\ninput_select:\n  ${safeName}_mode:\n    options: ['off', 'cool', 'heat', 'auto', 'fan_only']\ninput_number:\n  ${safeName}_temp:\n    min: 16\n    max: 30\n    step: 1\nrest_command:\n  ${safeName}_set:\n    url: \"${u}/api/tx?id=${id}&c=1&k={{k}}&p={{p}}&m={{m}}&t={{t}}\"\n    method: GET\n\nclimate:\n  - platform: template\n    name: \"${curDev.name}\"\n    hvac_mode_template: \"{{ states('input_select.${safeName}_mode') }}\"\n    target_temperature_template: \"{{ states('input_number.${safeName}_temp') }}\"\n    set_hvac_mode:\n      - service: input_select.select_option\n        target: { entity_id: input_select.${safeName}_mode }\n        data: { option: \"{{ hvac_mode }}\" }\n      - service: rest_command.${safeName}_set\n        data:\n          k: 0\n          p: \"{{ 0 if hvac_mode == 'off' else 1 }}\"\n          m: \"{{ 0 if hvac_mode == 'cool' else 1 }}\"\n          t: 8\n    set_temperature:\n      - service: input_number.set_value\n        target: { entity_id: input_number.${safeName}_temp }\n        data: { value: \"{{ temperature }}\" }\n      - service: rest_command.${safeName}_set\n        data:\n          k: 2\n          p: 1\n          m: 0\n          t: \"{{ (temperature - 16)|int }}\"`;}else{code=`# 2. 粘贴到 configuration.yaml\nrest_command:\n  ${safeName}_cmd:\n    url: \"${u}/api/tx?id=${id}&c=${cid}&k={{k}}&p=0&m=0&t=0\"\n\nmedia_player:\n  - platform: universal\n    name: \"${curDev.name}\"\n    commands:\n      turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n      turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n      volume_up: { service: rest_command.${safeName}_cmd, data: {k: 7} }\n      volume_down: { service: rest_command.${safeName}_cmd, data: {k: 8} }`;}$('ha_code').value=code;}" +
                       "function fireTx(k){fire(k, curDev.idx, {name_cn:curDev.cate, id:curDev.cid})}" +
                       "function fire(k, idx, cateObj){let cid=cateObj.id;if(cid==1){if(k==0)ac.p=1-ac.p;if(k==1)ac.m=(ac.m+1)%5;if(k==2)ac.t=Math.min(14,ac.t+1);if(k==3)ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch(`/api/tx?id=${idx.id||idx.indexId}&c=${cid}&k=${k}&p=${ac.p}&m=${ac.m}&t=${ac.t}`).then(r=>r.text())}\n goHome();</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html; charset=UTF-8", html);
@@ -185,7 +186,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写控制台 UI (🌟加入 Root 智能双模保活)
+      - name: 3. 编写控制台 UI (🌟Root 开关/状态显示 完美回归)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -215,7 +216,7 @@ jobs:
 
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
-                  db = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
+                  db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
 
                   FrameLayout root = new FrameLayout(this);
@@ -239,7 +240,7 @@ jobs:
                   ip.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081"));
                   ipInput = ip; main.addView(ip);
 
-                  rootSwitch = new Switch(this); rootSwitch.setText("Root 保活模式 (推荐设备有Root时开启)");
+                  rootSwitch = new Switch(this); rootSwitch.setText("Root 保活 (推荐开启)");
                   rootSwitch.setChecked(cfg.getBoolean("use_root", false)); main.addView(rootSwitch);
 
                   Button start = new Button(this); start.setText("保存并启动网关");
@@ -264,15 +265,15 @@ jobs:
                       Intent i = new Intent(this, IRService.class);
                       i.putExtra("DOCKER_URL", dockerIp);
                       startForegroundService(i);
-                      statusTv.setText("状态: 运行中 (数据已互通)"); statusTv.setTextColor(Color.parseColor("#16a34a"));
+                      statusTv.setText("状态: 运行中 (HA已连接)"); statusTv.setTextColor(Color.parseColor("#16a34a"));
                   });
                   main.addView(start);
 
-                  Button add = new Button(this); add.setText("+ 在App内添加/管理设备");
+                  Button add = new Button(this); add.setText("+ 添加红外设备");
                   add.setOnClickListener(v -> openWeb());
                   main.addView(add);
 
-                  TextView lt = new TextView(this); lt.setText("\n📱 已存本地列表 (自动同步):");
+                  TextView lt = new TextView(this); lt.setText("\n📱 已存设备 (同步):");
                   main.addView(lt);
 
                   ScrollView scView = new ScrollView(this);
