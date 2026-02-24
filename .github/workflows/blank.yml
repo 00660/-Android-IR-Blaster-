@@ -338,6 +338,7 @@ jobs:
           import android.view.*;
           import android.webkit.*;
           import android.widget.*;
+          import androidx.cardview.widget.CardView; 
           import com.google.gson.*;
           import java.net.*;
           import java.util.*;
@@ -794,6 +795,7 @@ jobs:
           dependencies { 
               implementation 'org.nanohttpd:nanohttpd:2.3.1'
               implementation 'com.google.code.gson:gson:2.10.1'
+              implementation 'androidx.cardview:cardview:1.0.0'
           }
           EOF
 
