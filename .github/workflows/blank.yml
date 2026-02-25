@@ -13,7 +13,6 @@ jobs:
           mkdir -p app/src/main/jniLibs/arm64-v8a
           mkdir -p app/src/main/jniLibs/armeabi-v7a
           
-          # 下载官方 JNI 库
           curl -L -o /tmp/irext.zip "https://irext-lib-release.oss-cn-hangzhou.aliyuncs.com/1.5.2/decode_sdk/libirdecode_jni_1.5.2-android.zip" || echo "Download failed"
           
           if [ -f /tmp/irext.zip ]; then
@@ -33,13 +32,10 @@ jobs:
                   System.loadLibrary("irdecode");
               }
               
-              // 核心解码方法
-              public native int irFileOpen(int category, int subCategory, String fileName);
               public native int irBinaryOpen(int category, int subCategory, byte[] binary, int length);
               public native int irDecode(int keyCode, int[] userData, Object acStatus);
               public native int irClose();
               
-              // 空调状态结构（电视传 null）
               public static class ACStatus {
                   public int acPower;
                   public int acMode;
@@ -51,7 +47,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写核心服务（本地解码优先）
+      - name: 3. 编写核心服务（修复版）
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -85,7 +81,6 @@ jobs:
                   db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
                   
-                  // 初始化本地解码器
                   try {
                       decoder = new IRDecoder();
                       hasLocalDecode = true;
@@ -94,7 +89,6 @@ jobs:
                       Log.e(TAG, "本地解码器失败: " + e.getMessage());
                   }
                   
-                  // 前台服务通知
                   if (Build.VERSION.SDK_INT >= 26) {
                       NotificationChannel ch = new NotificationChannel("IR", "红外服务", NotificationManager.IMPORTANCE_LOW);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
@@ -147,12 +141,10 @@ jobs:
                   }).start();
               }
               
-              // ========== 核心：本地解码 ==========
               private int[] decodeLocal(String indexId, int category, int keyCode) {
                   if (!hasLocalDecode) return null;
                   
                   try {
-                      // 获取二进制码库
                       byte[] binary = binaryCache.get(indexId);
                       if (binary == null) {
                           binary = downloadBinary(indexId);
@@ -160,19 +152,16 @@ jobs:
                           binaryCache.put(indexId, binary);
                       }
                       
-                      // 打开码库
                       int ret = decoder.irBinaryOpen(category, 1, binary, binary.length);
                       if (ret != 0) {
                           Log.e(TAG, "irBinaryOpen 失败: " + ret);
                           return null;
                       }
                       
-                      // 解码（电视传 null，空调传 ACStatus）
                       int[] userData = new int[1024];
                       int length;
                       
                       if (category == 1) {
-                          // 空调
                           IRDecoder.ACStatus ac = new IRDecoder.ACStatus();
                           ac.acPower = 0;
                           ac.acMode = 0;
@@ -182,7 +171,6 @@ jobs:
                           ac.changeWindDir = 0;
                           length = decoder.irDecode(keyCode, userData, ac);
                       } else {
-                          // 电视/机顶盒 - 关键：传 null 而不是 ACStatus
                           length = decoder.irDecode(keyCode, userData, null);
                       }
                       
@@ -235,7 +223,6 @@ jobs:
                   return null;
               }
               
-              // ========== 在线解码（备用） ==========
               private int[] decodeOnline(String indexId, int category, int keyCode) {
                   try {
                       JsonObject req = new JsonObject();
@@ -246,7 +233,6 @@ jobs:
                       req.addProperty("directDecode", "0");
                       req.addProperty("paraData", "0");
                       
-                      // 电视/机顶盒尝试不加 acStatus，或者加空对象
                       if (category == 1) {
                           JsonObject ac = new JsonObject();
                           ac.addProperty("acPower", "0");
@@ -257,7 +243,6 @@ jobs:
                           ac.addProperty("changeWindDir", "0");
                           req.add("acStatus", ac);
                       }
-                      // 注意：category != 1 时不加 acStatus
                       
                       String res = httpPost("/irext-server/operation/decode", req.toString());
                       Log.d(TAG, "在线解码响应: " + res);
@@ -356,7 +341,7 @@ jobs:
                   }
               }
               
-              // ========== Web 服务器 ==========
+              // ========== Web 服务器（修复：serveUI 在内部类中） ==========
               private class WebServer extends NanoHTTPD {
                   public WebServer(int port) { super(port); }
                   
@@ -367,7 +352,8 @@ jobs:
                       
                       try {
                           if ("/api/list".equals(uri)) {
-                              return jsonResponse(db.getString("devs", "[]"));
+                              return newFixedLengthResponse(Response.Status.OK, "application/json", 
+                                  db.getString("devs", "[]"));
                           }
                           
                           if ("/api/save".equals(uri)) {
@@ -393,21 +379,18 @@ jobs:
                               return newFixedLengthResponse("OK");
                           }
                           
-                          // ========== 核心：发射接口 ==========
                           if ("/api/tx".equals(uri)) {
-                              String cid = p.get("c");          // 1=空调, 2=电视, 3=机顶盒
-                              String indexId = p.get("id");     // 码库ID
-                              String keyCode = p.get("k");      // 按键码
+                              String cid = p.get("c");
+                              String indexId = p.get("id");
+                              String keyCode = p.get("k");
                               
                               int category = Integer.parseInt(cid);
                               int key = Integer.parseInt(keyCode);
                               
                               Log.i(TAG, "发射请求: cat=" + category + ", idx=" + indexId + ", key=" + key);
                               
-                              // 优先本地解码
                               int[] pattern = decodeLocal(indexId, category, key);
                               
-                              // 本地失败，尝试在线
                               if (pattern == null) {
                                   Log.w(TAG, "本地解码失败，尝试在线解码");
                                   pattern = decodeOnline(indexId, category, key);
@@ -426,7 +409,7 @@ jobs:
                               String res = httpPost(p.get("p"), body);
                               JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
                               String entity = obj.has("entity") ? obj.get("entity").toString() : "[]";
-                              return jsonResponse(entity);
+                              return newFixedLengthResponse(Response.Status.OK, "application/json", entity);
                           }
                           
                       } catch (Exception e) {
@@ -434,21 +417,13 @@ jobs:
                           return newFixedLengthResponse("Error: " + e.getMessage());
                       }
                       
-                      return serveUI();
+                      // 返回 UI（直接内联，不调用外部方法）
+                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;max-width:500px;margin:0 auto}.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}.btn{background:#1890ff;color:#fff;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;width:100%;margin-top:8px}.btn-g{background:#52c41a}.btn-r{background:#ff4d4f}select,input{width:100%;padding:10px;margin:8px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}</style></head><body>" +
+                          "<div id='home'><div class='card'><h3>🏠 我的设备</h3><div id='list'></div><button class='btn btn-g' onclick='goAdd()'>+ 添加设备</button></div></div>" +
+                          "<div id='add' style='display:none'><div class='card'><h3>添加设备</h3><select id='type' onchange='loadBrands()'><option>选择类型</option></select><select id='brand' style='display:none'></select><div id='stb' style='display:none'><select id='prov'><option>省份</option></select><select id='city'><option>城市</option></select><select id='op'><option>运营商</option></select></div><button class='btn' onclick='match()'>开始匹配</button></div></div>" +
+                          "<script>const $=i=>document.getElementById(i);function loadDevs(){fetch('/api/list').then(r=>r.json()).then(d=>{let h='';d.forEach((x,i)=>h+=`<div class='card' onclick='control(${i})'><b>${x.name}</b><br><small>${x.brand}</small></div>`);$('list').innerHTML=h||'暂无设备'})}function goAdd(){}function control(idx){}loadDevs();</script></body></html>";
+                      return newFixedLengthResponse(Response.Status.OK, "text/html", html);
                   }
-                  
-                  private Response jsonResponse(String json) {
-                      return newFixedLengthResponse(Response.Status.OK, "application/json", json);
-                  }
-              }
-              
-              private Response serveUI() {
-                  // 简化的 UI...
-                  String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;max-width:500px;margin:0 auto}.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}.btn{background:#1890ff;color:#fff;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;width:100%;margin-top:8px}.btn-g{background:#52c41a}.btn-r{background:#ff4d4f}select,input{width:100%;padding:10px;margin:8px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}</style></head><body>" +
-                      "<div id='home'><div class='card'><h3>🏠 我的设备</h3><div id='list'></div><button class='btn btn-g' onclick='goAdd()'>+ 添加设备</button></div></div>" +
-                      "<div id='add' style='display:none'><div class='card'><h3>添加设备</h3><select id='type' onchange='loadBrands()'><option>选择类型</option></select><select id='brand' style='display:none'></select><div id='stb' style='display:none'><select id='prov'><option>省份</option></select><select id='city'><option>城市</option></select><select id='op'><option>运营商</option></select></div><button class='btn' onclick='match()'>开始匹配</button></div></div>" +
-                      "<script>const $=i=>document.getElementById(i);function loadDevs(){fetch('/api/list').then(r=>r.json()).then(d=>{let h='';d.forEach((x,i)=>h+=`<div class='card' onclick='control(${i})'><b>${x.name}</b><br><small>${x.brand}</small></div>`);$('list').innerHTML=h||'暂无设备'})}function goAdd(){}function control(idx){}loadDevs();</script></body></html>";
-                  return newFixedLengthResponse(Response.Status.OK, "text/html", html);
               }
               
               @Override public IBinder onBind(Intent intent) { return null; }
@@ -464,12 +439,9 @@ jobs:
           import android.content.SharedPreferences;
           import android.graphics.Color;
           import android.os.Bundle;
-          import android.provider.Settings;
           import android.view.*;
           import android.webkit.*;
           import android.widget.*;
-          import java.net.*;
-          import java.util.*;
 
           public class MainActivity extends Activity {
               SharedPreferences cfg;
@@ -589,7 +561,7 @@ jobs:
               namespace "hap.re00660.re"
               defaultConfig {
                   applicationId "hap.re00660.re"
-                  minSdk 26
+                  minSdk 21
                   targetSdk 33
                   ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
               }
