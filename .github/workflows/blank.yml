@@ -18,13 +18,24 @@ jobs:
         run: |
           curl -L -o libirdecode.zip "https://irext-lib-release.oss-cn-hangzhou.aliyuncs.com/1.5.2/decode_sdk/libirdecode_jni_1.5.2-android.zip"
           unzip -q libirdecode.zip
-          # 复制 SO 文件到对应目录
-          find . -name "libirdecode_jni.so" -path "*arm64-v8a*" -exec cp {} app/src/main/jniLibs/arm64-v8a/ \;
-          find . -name "libirdecode_jni.so" -path "*armeabi-v7a*" -exec cp {} app/src/main/jniLibs/armeabi-v7a/ \;
+          
+          # 显示解压后的结构
+          echo "=== 解压后的文件结构 ==="
+          find . -name "*.so" -o -name "arm*" -type d | head -20
+          
+          # 复制 SO 文件（修正路径）
+          cp libirdecode_jni_1.5.2-android/arm64-v8a/libirdecode_jni.so app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || \
+          cp arm64-v8a/libirdecode_jni.so app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || \
+          find . -path "*/arm64-v8a/libirdecode_jni.so" -exec cp {} app/src/main/jniLibs/arm64-v8a/ \;
+          
+          cp libirdecode_jni_1.5.2-android/armeabi-v7a/libirdecode_jni.so app/src/main/jniLibs/armeabi-v7a/ 2>/dev/null || \
+          cp armeabi-v7a/libirdecode_jni.so app/src/main/jniLibs/armeabi-v7a/ 2>/dev/null || \
+          find . -path "*/armeabi-v7a/libirdecode_jni.so" -exec cp {} app/src/main/jniLibs/armeabi-v7a/ \;
+          
           # 显示结果
-          echo "✅ SO 文件已放置："
-          ls -la app/src/main/jniLibs/arm64-v8a/
-          ls -la app/src/main/jniLibs/armeabi-v7a/
+          echo "=== SO 文件已放置 ==="
+          ls -la app/src/main/jniLibs/arm64-v8a/ || echo "arm64-v8a 失败"
+          ls -la app/src/main/jniLibs/armeabi-v7a/ || echo "armeabi-v7a 失败"
 
       - name: 3. 编写开机自启
         run: |
