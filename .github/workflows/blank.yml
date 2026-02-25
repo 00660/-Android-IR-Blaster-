@@ -744,7 +744,7 @@ jobs:
               namespace "hap.re00660.re"
               defaultConfig { 
                   applicationId "hap.re00660.re"
-                  minSdk 21
+                  minSdk 26
                   targetSdk 33
                   ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64' }
               }
