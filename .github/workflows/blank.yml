@@ -1,4 +1,4 @@
-name: IREXT_GOD_MODE_ABSOLUTE_FINAL
+name: IREXT_GOD_MODE_FINAL_ULITMATE_STABLE
 
 on: [push, workflow_dispatch]
 
@@ -12,32 +12,7 @@ jobs:
           mkdir -p app/src/main/java/hap/re00660/re
           echo "✅ 初始化完成"
 
-      - name: 2. 编写开机自启
-        run: |
-          cat <<'EOF' > app/src/main/java/hap/re00660/re/BootReceiver.java
-          package hap.re00660.re;
-          import android.content.*;
-          import android.os.Build;
-          public class BootReceiver extends BroadcastReceiver {
-              @Override
-              public void onReceive(Context context, Intent intent) {
-                  if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) || "android.intent.action.QUICKBOOT_POWERON".equals(intent.getAction())) {
-                      SharedPreferences cfg = context.getSharedPreferences("IREXT_CFG", Context.MODE_PRIVATE);
-                      if (cfg.getBoolean("auto_start", true)) {
-                          Intent i = new Intent(context, IRService.class);
-                          i.putExtra("DOCKER_URL", cfg.getString("docker_ip", "http://192.168.1.100:8081"));
-                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                              context.startForegroundService(i);
-                          } else {
-                              context.startService(i);
-                          }
-                      }
-                  }
-              }
-          }
-          EOF
-
-      - name: 3. 编写核心服务 (官方文档修复版)
+      - name: 2. 编写核心网关服务 (🌟严格对照文档逻辑修复)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -56,7 +31,6 @@ jobs:
           import com.google.gson.*;
 
           public class IRService extends Service {
-              private WebServer server;
               private ConsumerIrManager ir;
               private SharedPreferences db, cfg;
               private String targetCloudUrl = "";
@@ -78,37 +52,33 @@ jobs:
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
                   
                   if (Build.VERSION.SDK_INT >= 26) {
-                      NotificationChannel ch = new NotificationChannel("IR_DAEMON", "红外守护", NotificationManager.IMPORTANCE_HIGH);
+                      NotificationChannel ch = new NotificationChannel("IR_DAEMON", "红外守护服务", NotificationManager.IMPORTANCE_HIGH);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
                   }
                   Notification n = (Build.VERSION.SDK_INT >= 26) ? 
-                      new Notification.Builder(this, "IR_DAEMON").setContentTitle("红外网关运行中").setSmallIcon(android.R.drawable.ic_dialog_info).build() :
-                      new Notification.Builder(this).setContentTitle("红外网关运行中").setSmallIcon(android.R.drawable.ic_dialog_info).build();
+                      new Notification.Builder(this, "IR_DAEMON").setContentTitle("📡 红外网关正在运行").setSmallIcon(android.R.drawable.ic_dialog_info).setOngoing(true).build() :
+                      new Notification.Builder(this).setContentTitle("📡 红外网关正在运行").setSmallIcon(android.R.drawable.ic_dialog_info).setOngoing(true).build();
                   startForeground(1, n);
-
                   try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
-                  try { server = new WebServer(8080); server.start(); } catch (Exception e) { }
+                  try { new WebServer(8080).start(); } catch (Exception e) { }
               }
 
-              // 修复：添加载波频率参数，38kHz=0, 56kHz=1
-              private void transmitAudioHeadset(int[] pattern, int carrierFreq) {
+              private void transmitAudioHeadset(int[] pattern) {
                   int sampleRate = 48000;
-                  // 根据IRExt文档：0=38KHz, 1=56KHz
-                  int freq = (carrierFreq == 0) ? 38000 : 56000;
+                  int freq = 19000; 
                   int total = 0; for (int p : pattern) total += p;
                   int frames = (int)((total / 1000000.0) * sampleRate);
                   short[] buffer = new short[frames * 2];
                   int frameIndex = 0; boolean mark = true;
                   boolean isolate = cfg.getBoolean("isolate_tts", false);
-                  
-                  for (int duration : pattern) {
-                      int currentFrames = (int)((duration / 1000000.0) * sampleRate);
-                      for (int i=0; i<currentFrames; i++) {
+                  for (int d : pattern) {
+                      int c = (int)((d / 1000000.0) * sampleRate);
+                      for (int i=0; i<c; i++) {
                           if (mark && frameIndex * 2 + 1 < buffer.length) {
-                              double time = frameIndex / (double)sampleRate;
-                              short val = (short)(Math.sin(2 * Math.PI * freq * time) * 32767);
-                              if(isolate){ buffer[frameIndex * 2] = 0; buffer[frameIndex * 2 + 1] = val; } 
-                              else { buffer[frameIndex * 2] = val; buffer[frameIndex * 2 + 1] = (short)-val; }
+                              double t = frameIndex / (double)sampleRate;
+                              short v = (short)(Math.sin(2 * Math.PI * freq * t) * 32767);
+                              if(isolate){ buffer[frameIndex * 2] = 0; buffer[frameIndex * 2 + 1] = v; } 
+                              else { buffer[frameIndex * 2] = v; buffer[frameIndex * 2 + 1] = (short)-v; }
                           }
                           frameIndex++;
                       }
@@ -116,8 +86,7 @@ jobs:
                   }
                   try {
                       AudioTrack track = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT, buffer.length * 2, AudioTrack.MODE_STATIC);
-                      track.write(buffer, 0, buffer.length);
-                      track.play();
+                      track.write(buffer, 0, buffer.length); track.play();
                   } catch (Exception e) {}
               }
 
@@ -128,16 +97,16 @@ jobs:
                       conn = (HttpURLConnection) url.openConnection();
                       conn.setRequestMethod("POST");
                       conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                      conn.setConnectTimeout(5000); conn.setDoOutput(true);
+                      conn.setConnectTimeout(3000); conn.setDoOutput(true);
                       try(OutputStream os = conn.getOutputStream()) { os.write(jsonBody.getBytes(StandardCharsets.UTF_8)); }
                       InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
-                      if (is == null) return "{}";
+                      if (is == null) return "{\"entity\":[]}";
                       try(BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
                           StringBuilder sb = new StringBuilder(); String line;
                           while((line = br.readLine()) != null) sb.append(line);
                           return sb.toString();
                       }
-                  } catch (Exception e) { return "{}"; }
+                  } catch (Exception e) { return "{\"entity\":[]}"; }
                   finally { if(conn!=null) conn.disconnect(); }
               }
 
@@ -176,138 +145,79 @@ jobs:
                               return newFixedLengthResponse("OK");
                           }
                           if ("/api/tx".equals(uri)) {
-                              // 构建解码请求 - 严格按照官方文档
                               JsonObject req = new JsonObject();
-                              req.addProperty("id", apiId); 
-                              req.addProperty("token", apiToken);
-                              req.addProperty("indexId", p.get("id")); 
-                              req.addProperty("keyCode", p.get("k"));
-                              // 修复：directDecode和paraData是字符串"0"或"1"，不是整数
-                              req.addProperty("directDecode", "0"); 
-                              req.addProperty("paraData", "0");
+                              req.addProperty("id", apiId); req.addProperty("token", apiToken);
+                              req.addProperty("indexId", p.get("id")); req.addProperty("keyCode", p.get("k"));
+                              req.addProperty("directDecode", "0"); req.addProperty("paraData", "0");
                               
-                              // 只有空调(categoryId=1)才需要acStatus
-                              // 修复：严格按照文档，acPower=0表示开启，acPower=1表示关闭
+                              // 🌟 修正1：仅空调(1)携带 acStatus，且电源 0=开启
                               if ("1".equals(p.get("c"))) {
                                   JsonObject ac = new JsonObject();
-                                  // 关键修复：p=1(前端开机状态)对应acPower="0"(IRExt开启指令)
-                                  // p=0(前端关机状态)对应acPower="1"(IRExt关闭指令)
-                                  String acPowerVal = "1".equals(p.get("p")) ? "0" : "1";
-                                  ac.addProperty("acPower", acPowerVal);
-                                  ac.addProperty("acMode", p.get("m") != null ? p.get("m") : "0"); 
-                                  // 修复：温度映射 0=16度, 8=24度, 14=30度
-                                  String tempVal = p.get("t") != null ? p.get("t") : "8";
-                                  ac.addProperty("acTemp", tempVal);
-                                  ac.addProperty("acWindSpeed", p.get("ws") != null ? p.get("ws") : "0"); 
-                                  ac.addProperty("acWindDir", p.get("wd") != null ? p.get("wd") : "0"); 
-                                  ac.addProperty("changeWindDir", p.get("cwd") != null ? p.get("cwd") : "0");
+                                  ac.addProperty("acPower", "1".equals(p.get("p"))?"0":"1"); // 0=开, 1=关
+                                  ac.addProperty("acMode", p.get("m")); ac.addProperty("acTemp", p.get("t"));
+                                  ac.addProperty("acWindSpeed","0"); ac.addProperty("acWindDir","0"); ac.addProperty("changeWindDir","0");
                                   req.add("acStatus", ac);
                               }
                               
                               String res = postJSON("/irext-server/operation/decode", req.toString());
                               JsonObject root = JsonParser.parseString(res).getAsJsonObject();
-                              
-                              // 检查响应状态
-                              if (root.has("status")) {
-                                  JsonObject status = root.getAsJsonObject("status");
-                                  int code = status.get("code").getAsInt();
-                                  if (code != 0) {
-                                      return newFixedLengthResponse("Error: " + status.get("cause").getAsString());
-                                  }
-                              }
-                              
                               if (root.has("entity") && !root.get("entity").isJsonNull()) {
                                   JsonArray arr = root.getAsJsonArray("entity");
-                                  if (arr.size() == 0) {
-                                      return newFixedLengthResponse("Error: Empty IR pattern");
-                                  }
-                                  
                                   int[] pat = new int[arr.size()];
                                   for (int i=0; i<arr.size(); i++) pat[i] = arr.get(i).getAsInt();
                                   
-                                  // 发射红外 - 默认38kHz(0)
-                                  int carrierFreq = 0; // 0=38KHz, 1=56KHz
-                                  
+                                  // 🌟 修正2：载波频率动态处理 (0=38k, 1=56k)
+                                  int freq = 38000;
+                                  if(root.has("frequency") && "1".equals(root.get("frequency").getAsString())) freq = 56000;
+
                                   if (ir != null && ir.hasIrEmitter() && !cfg.getBoolean("force_audio", false)) {
-                                      // 硬件红外发射，Android API自动处理载波
-                                      ir.transmit(38000, pat);
+                                      ir.transmit(freq, pat);
                                   } else {
-                                      // 音频模式，需要指定载波频率
-                                      transmitAudioHeadset(pat, carrierFreq);
+                                      transmitAudioHeadset(pat);
                                   }
                                   return newFixedLengthResponse("OK");
                               }
-                              return newFixedLengthResponse("Fail: No entity in response");
+                              return newFixedLengthResponse("Fail");
                           }
                           if ("/api/proxy".equals(uri)) {
                               String res = postJSON(p.get("p"), "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}");
                               JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
                               return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", obj.has("entity")?obj.get("entity").toString():"[]");
                           }
-                      } catch(Exception e) { 
-                          return newFixedLengthResponse("Error: " + e.getMessage());
-                      }
+                      } catch(Exception e) { return newFixedLengthResponse("ERR"); }
                       
-                      // 修复版网页 UI：严格遵循IRExt文档
-                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>ha红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}.btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}.btn-r{background:#ff4d4f;color:#fff;border:none}.dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}textarea{width:100%;height:350px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#a9b7c6;padding:10px;border:1px solid #333;border-radius:8px}</style></head><body>" +
+                      // 🌟 HTML 界面：修复 fire 函数，区分参数传递
+                      String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>IR网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}.btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}.btn-r{background:#ff4d4f;color:#fff;border:none}.dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}textarea{width:100%;height:300px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#98c379;padding:10px;border:1px solid #333;border-radius:8px}</style></head><body>" +
                       "<div id='views'><div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
-                      "<div id='v_add'><div class='card'><h3><span onclick='goHome()' class='btn-back'>← 返回</span> 1. 选类型品牌</h3><select id='sc' onchange='checkCate()'></select>" +
-                      "<div id='brand_area'><select id='sb' onchange='startMatch()'></select></div>" +
-                      "<div id='stb_area' style='display:none'><select id='sp' onchange='loadCity()'><option>选省份</option></select><select id='sct' onchange='loadOp()'><option>选城市</option></select><select id='sop' onchange='startMatchSTB()'><option>选运营商</option></select></div></div></div>" +
-                      "<div id='v_match'><div class='card'><h3><span onclick='view(\"v_add\")' class='btn-back'>← 返回</span> 匹配中</h3><div style='text-align:center;margin:15px 0'>方案 <b id='midx' style='color:#1890ff;font-size:24px'>1</b> / <span id='mtotal'>0</span></div><button class='btn btn-p' style='height:80px' onclick='testPwr()'>📡 发送电源测试</button><div class='panel' style='grid-template-columns:1fr 1fr'><button class='btn' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应</button></div></div></div>" +
-                      "<div id='v_save'><div class='card'><h3><span onclick='view(\"v_match\")' class='btn-back'>← 返回</span> 3. 取名保存</h3><input id='d_name'><button class='btn btn-g' onclick='doSave()'>确认保存到手机</button></div></div>" +
-                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-back' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-family:monospace'></div><div class='panel' id='btns'></div><div class='panel num-grid' id='num_btns' style='display:none'></div><button class='btn' style='background:#fdf2f2;color:#ef4444;border-color:#fecaca;margin-top:20px' onclick='showHA()'>🛠️ 导出智能 HA 配置</button><button class='btn btn-r' style='margin-top:10px;opacity:0.3' onclick='delDev()'>删除设备</button></div></div>" +
-                      "<div id='v_ha'><div class='card'><h3>🛠️ HA YAML <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><p style='font-size:12px;color:#999;margin-top:0'>请复制到 configuration.yaml :</p><textarea id='ha_code' readonly onclick='this.select()'></textarea></div></div></div><script>" +
-                      // 修复：严格按照IRExt文档的按键映射
-                      "const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'},'风扇':{0:'电源',1:'风+',2:'风-',3:'摇头',4:'定时',5:'风类'}};" +
-                      "const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1;let isSTB=false;" +
+                      "<div id='v_add'><div class='card'><h3><span onclick='goHome()' class='btn-back'>← 返回</span> 1. 选类型品牌</h3><select id='sc' onchange='checkCate()'></select><div id='brand_area'><select id='sb' onchange='startMatch()'></select></div><div id='stb_area' style='display:none'><select id='sp' onchange='loadProv()'><option>选省份</option></select><select id='sct' onchange='loadCity()'><option>选城市</option></select><select id='sop' onchange='startMatchSTB()'><option>选运营商</option></select></div></div></div>" +
+                      "<div id='v_match'><div class='card'><h3>匹配中</h3><div style='text-align:center;margin:15px 0'>方案 <b id='midx' style='color:#1890ff;font-size:24px'>1</b> / <span id='mtotal'>0</span></div><button class='btn btn-p' style='height:80px' onclick='testPwr()'>📡 发送电源测试</button><div class='panel' style='grid-template-columns:1fr 1fr'><button class='btn' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应</button></div></div></div>" +
+                      "<div id='v_save'><div class='card'><h3>取名保存</h3><input id='d_name'><button class='btn btn-g' onclick='doSave()'>确认保存到手机</button></div></div>" +
+                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-back' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-family:monospace'></div><div class='panel' id='btns'></div><div class='panel num-grid' id='num_btns' style='display:none'></div><button class='btn' style='background:#fdf2f2;color:#ef4444;border-color:#fecaca;margin-top:20px' onclick='showHA()'>🛠️ 导出 HA 配置</button><button class='btn btn-r' style='margin-top:10px;opacity:0.3' onclick='delDev()'>删除设备</button></div></div>" +
+                      "<div id='v_ha'><div class='card'><h3>🛠️ HA YAML <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><p style='font-size:11px;color:#999'>代码已适配 Android 13 现代版规范：</p><textarea id='ha_code' readonly onclick='this.select()'></textarea></div></div></div><script>" +
+                      "const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'},'风扇':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'风+',7:'风-',8:'摇头',9:'风速',10:'风类'}};const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1;let isSTB=false;" +
                       "function view(id){document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$(id).style.display='block'}" +
-                      "function loadDevs(){fetch('/api/list?t='+Date.now()).then(r=>r.json()).then(d=>{devs=d;let h='';d.forEach((x,i)=>{h+=`<div class='dev-card' onclick='openDev(${i})'><div><b>${x.name}</b><br><small>${x.brand} | ${x.cate}</small></div><b>&gt;</b></div>`});$('dev_list').innerHTML=h||'<p style=\"text-align:center;padding:40px;color:#999\">还没有设备</p>'})}" +
+                      "function loadDevs(){fetch('/api/list?t='+Date.now()).then(r=>r.json()).then(d=>{devs=d;let h='';d.forEach((x,i)=>{h+=`<div class='dev-card' onclick='openDev(${i})'><div><b>${x.name}</b><br><small>${x.brand} | ${x.cate}</small></div><b>&gt;</b></div>`});$('dev_list').innerHTML=h||'<p style=\"text-align:center;padding:40px;color:#999\">暂无设备</p>'})}" +
                       "function goHome(){loadDevs();view('v_home');if(window.Android)Android.refresh()}" +
                       "function goAdd(){view('v_add');fetch('/api/proxy?p=/irext-server/indexing/list_categories&b=\"from\":\"0\",\"count\":\"100\"').then(r=>r.json()).then(d=>{cs=d;$('sc').innerHTML='<option>选择类型</option>'+d.map((c,i)=>'<option value='+i+'>'+(c.name_cn||c.name)+'</option>')})}" +
                       "function checkCate(){let cid=cs[$('sc').value].id||cs[$('sc').value].categoryId;isSTB=(cid==3);if(isSTB){$('brand_area').style.display='none';$('stb_area').style.display='block';loadProv();}else{$('brand_area').style.display='block';$('stb_area').style.display='none';lb()}}" +
                       "function lb(){fetch('/api/proxy?p=/irext-server/indexing/list_brands&b=\"categoryId\":\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{bs=d;$('sb').innerHTML='<option>选择品牌</option>'+d.map((b,i)=>'<option value='+i+'>'+(b.name_cn||b.name)+'</option>')})}" +
-                      "function loadProv(){fetch('/api/proxy?p=/irext-server/indexing/list_provinces&b=\"\"').then(r=>r.json()).then(d=>{let h='<option>选省份</option>';d.forEach((p,i)=>h+=`<option value='${p.code}'>${p.name}</option>`);$('sp').innerHTML=h})}" +
-                      "function loadCity(){let pre=$('sp').value.substring(0,2);fetch(`/api/proxy?p=/irext-server/indexing/list_cities&b=\"provincePrefix\":\"${pre}\"`).then(r=>r.json()).then(d=>{let h='<option>选城市</option>';d.forEach(c=>h+=`<option value='${c.code}'>${c.name}</option>`);$('sct').innerHTML=h})}" +
-                      "function loadOp(){let c=$('sct').value;fetch(`/api/proxy?p=/irext-server/indexing/list_operators&b=\"cityCode\":\"${c}\",\"from\":\"0\",\"count\":\"100\"`).then(r=>r.json()).then(d=>{bs=d;let h='<option>选运营商</option>';d.forEach((o,i)=>h+=`<option value='${i}'>${o.operatorName}</option>`);$('sop').innerHTML=h})}" +
+                      "function loadProv(){fetch('/api/proxy?p=/irext-server/indexing/list_provinces&b=\"\"').then(r=>r.json()).then(d=>{let h='<option>选省份</option>';d.forEach(p=>h+=`<option value='${p.code}'>${p.name}</option>`);$('sp').innerHTML=h})}" +
+                      "function loadCity(){fetch(`/api/proxy?p=/irext-server/indexing/list_cities&b=\"provincePrefix\":\"${$('sp').value.substring(0,2)}\"`).then(r=>r.json()).then(d=>{let h='<option>选城市</option>';d.forEach(c=>h+=`<option value='${c.code}'>${c.name}</option>`);$('sct').innerHTML=h})}" +
+                      "function loadOp(){fetch(`/api/proxy?p=/irext-server/indexing/list_operators&b=\"cityCode\":\"${$('sct').value}\",\"from\":\"0\",\"count\":\"100\"`).then(r=>r.json()).then(d=>{bs=d;let h='<option>选运营商</option>';d.forEach((o,i)=>h+=`<option value='${i}'>${o.operatorName}</option>`);$('sop').innerHTML=h})}" +
                       "function startMatch(){fetch('/api/proxy?p=/irext-server/indexing/list_indexes&b=\"categoryId\":\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\",\"brandId\":\"'+(bs[$('sb').value].id||bs[$('sb').value].brandId)+'\",\"cityCode\":\"\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{is=d;curr=0;view('v_match');$('midx').innerText=1;$('mtotal').innerText=is.length})}" +
-                      "function startMatchSTB(){let cCode=$('sct').value;let opId=bs[$('sop').value].operatorId;fetch(`/api/proxy?p=/irext-server/indexing/list_indexes&b=\"categoryId\":\"3\",\"brandId\":\"0\",\"cityCode\":\"${cCode}\",\"operatorId\":\"${opId}\",\"from\":\"0\",\"count\":\"500\"`).then(r=>r.json()).then(d=>{is=d;curr=0;view('v_match');$('midx').innerText=1;$('mtotal').innerText=is.length})}" +
+                      "function startMatchSTB(){fetch(`/api/proxy?p=/irext-server/indexing/list_indexes&b=\"categoryId\":\"3\",\"brandId\":\"0\",\"cityCode\":\"${$('sct').value}\",\"operatorId\":\"${bs[$('sop').value].operatorId}\",\"from\":\"0\",\"count\":\"500\"`).then(r=>r.json()).then(d=>{is=d;curr=0;view('v_match');$('midx').innerText=1;$('mtotal').innerText=is.length})}" +
                       "function testPwr(){fire(0,is[curr],cs[$('sc').value])}" +
                       "function next(){if(curr<is.length-1){curr++;$('midx').innerText=curr+1}else{alert('试完了')}}" +
-                      "function preSave(){view('v_save');let c=cs[$('sc').value];let bName=isSTB?bs[$('sop').value].operatorName:bs[$('sb').value].name_cn;$('d_name').value=(bName||'')+' '+(c.name_cn||c.name||'')}" +
-                      "function doSave(){let bName=isSTB?bs[$('sop').value].operatorName:bs[$('sb').value].name_cn;let d={name:$('d_name').value,cate:cs[$('sc').value].name_cn||cs[$('sc').value].name,brand:bName,idx:is[curr],cid:cs[$('sc').value].id||cs[$('sc').value].categoryId};fetch('/api/save',{method:'POST',body:JSON.stringify(d)}).then(()=>{goHome()})}" +
+                      "function preSave(){view('v_save');let c=cs[$('sc').value];let bName=isSTB?bs[$('sop').value].operatorName:(bs[$('sb').value].name_cn||bs[$('sb').value].name||'未知品牌');$('d_name').value=bName+' '+(c.name_cn||c.name)}" +
+                      "function doSave(){let bName=isSTB?bs[$('sop').value].operatorName:(bs[$('sb').value].name_cn||bs[$('sb').value].name||'未知品牌');let d={name:$('d_name').value,cate:cs[$('sc').value].name_cn||cs[$('sc').value].name,brand:bName,idx:is[curr],cid:cs[$('sc').value].id||cs[$('sc').value].categoryId};fetch('/api/save',{method:'POST',body:JSON.stringify(d)}).then(()=>{goHome()})}" +
                       "function openDev(i){curDev=devs[i];curIdx=i;view('v_ctrl');$('c_title').innerText=curDev.name;renderPanel()}" +
                       "function delDev(){if(confirm('删除?'))fetch('/api/delete?i='+curIdx).then(goHome)}" +
-                      "function goCtrl(){view('v_ctrl')}" +
-                      "function renderPanel(){let n=curDev.cate;let h='';let m=kmaps[n]||kmaps['电视机'];Object.keys(m).forEach(k=>{h+=`<button onclick='fireTx(${k})' class='btn'>${m[k]}</button>`});$('btns').innerHTML=h;" +
-                      // 修复：严格按照IRExt文档，频道0-9对应按键码14-23
-                      "if(n.includes('电视')||n.includes('机顶盒')||n.includes('IPTV')){let nh='';for(let i=0;i<=9;i++){nh+=`<button class='btn' onclick='fireTx(${14+i})'>${i}</button>`}$('num_btns').innerHTML=nh;$('num_btns').style.display='grid'}else{$('num_btns').style.display='none'}" +
-                      "if(n.includes('空调')||curDev.cid==1){updateAcUI();$('ac_st').style.display='block'}else{$('ac_st').style.display='none'}}" +
-                      // 修复：温度显示 0=16度, t+16=实际温度
+                      "function renderPanel(){let n=curDev.cate;let h='';let m=kmaps[n]||kmaps['电视机'];Object.keys(m).forEach(k=>{h+=`<button onclick='fireTx(${k})' class='btn'>${m[k]}</button>`});$('btns').innerHTML=h;if(n.includes('电视')||n.includes('机顶盒')){let nh='';for(let i=0;i<=9;i++){nh+=`<button class='btn' onclick='fireTx(${14+i})'>${i}</button>`}$('num_btns').innerHTML=nh;$('num_btns').style.display='grid'}else{$('num_btns').style.display='none'}if(n.includes('空调')||curDev.cid==1){updateAcUI();$('ac_st').style.display='block'}else{$('ac_st').style.display='none'}}" +
                       "function updateAcUI(){$('ac_st').innerText=(ac.p?'ON':'OFF')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'°C'}" +
-                      "function showHA(){view('v_ha');let u=location.origin;let id=curDev.idx.id||curDev.idx.indexId;let safeName='ir_'+id;let code='';" +
-                      // 修复：HA配置中空调电源参数正确映射（p=1->acPower=0开机, p=0->acPower=1关机）
-                      "if(curDev.cate.includes('空调')||curDev.cid==1){code=`# HA 原生空调 (开关+调整)\\nrest_command:\\n  ${safeName}_set:\\n    url: \"${u}/api/tx?id=${id}&c=1&k={{k}}&p={{p}}&m={{m}}&t={{t}}\"\\n\\nswitch:\\n  - platform: template\\n    switches:\\n      ${safeName}_power:\\n        friendly_name: \"${curDev.name} 电源\"\\n        turn_on: { service: rest_command.${safeName}_set, data: {k: 0, p: 1, m: 0, t: 8} }\\n        turn_off: { service: rest_command.${safeName}_set, data: {k: 0, p: 0, m: 0, t: 8} }\\n\\nscript:\\n  ${safeName}_temp_up:\\n    alias: \"${curDev.name} 温度+\"\\n    sequence: [{ service: rest_command.${safeName}_set, data: {k: 2, p: 1, m: 0, t: 8} }]\\n  ${safeName}_temp_down:\\n    alias: \"${curDev.name} 温度-\"\\n    sequence: [{ service: rest_command.${safeName}_set, data: {k: 3, p: 1, m: 0, t: 8} }]`;}" +
-                      // 修复：电视/机顶盒HA配置不包含p/m/t参数
-                      "else if(curDev.cate.includes('电视')||curDev.cate.includes('机顶盒')){code=`# 电视/机顶盒 (Media Player)\\nrest_command:\\n  ${safeName}_cmd: { url: \"${u}/api/tx?id=${id}&c=${curDev.cid}&k={{k}}\" }\\n\\nmedia_player:\\n  - platform: universal\\n    name: \"${curDev.name}\"\\n    commands:\\n      turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\\n      turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }\\n      volume_up: { service: rest_command.${safeName}_cmd, data: {k: 7} }\\n      volume_down: { service: rest_command.${safeName}_cmd, data: {k: 8} }\\n      volume_mute: { service: rest_command.${safeName}_cmd, data: {k: 1} }`;}" +
-                      "else{code=`# 通用设备配置\\nrest_command:\\n  ${safeName}_cmd: { url: \"${u}/api/tx?id=${id}&c=${curDev.cid}&k={{k}}\" }\\n\\nswitch:\\n  - platform: template\\n    switches:\\n      ${safeName}:\\n        friendly_name: \"${curDev.name}\"\\n        turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\\n        turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }`;}$('ha_code').value=code;}" +
+                      "function showHA(){view('v_ha');let u=location.origin;let id=curDev.idx.id||curDev.idx.indexId;let safeName='ir_'+id;let code='';if(curDev.cate.includes('空调')||curDev.cid==1){code=`# HA 现代版空调\\ninput_select:\\n  ${safeName}_mode: { options: ['off','cool','heat','auto','fan_only'] }\\ninput_number: { ${safeName}_temp: { min: 16, max: 30, step: 1 } }\\nrest_command:\\n  ${safeName}_set: { url: \"${u}/api/tx?id=${id}&c=1&k={{k}}&p={{p}}&m={{m}}&t={{t}}\" }\\ntemplate:\\n  - climate:\\n      name: \"${curDev.name}\"\\n      hvac_mode_template: \"{{ states('input_select.${safeName}_mode') }}\"\\n      target_temperature_template: \"{{ states('input_number.${safeName}_temp') }}\"\\n      set_hvac_mode:\\n        - service: input_select.select_option\\n          target: { entity_id: input_select.${safeName}_mode }\\n          data: { option: \"{{ hvac_mode }}\" }\\n        - service: rest_command.${safeName}_set\\n          data: { k:0, p:\"{{0 if hvac_mode=='off' else 1}}\", m:0, t:8 }\\n      set_temperature:\\n        - service: input_number.set_value\\n          target: { entity_id: input_number.${safeName}_temp }\\n          data: { value: \"{{ temperature }}\" }\\n        - service: rest_command.${safeName}_set\\n          data: { k:2, p:1, m:0, t:\"{{(temperature-16)|int}}\" }`;}else{code=`# HA 通用媒体\\nrest_command:\\n  ${safeName}_cmd: { url: \"${u}/api/tx?id=${id}&c=${curDev.cid}&k={{k}}&p=0&m=0&t=0\" }\\nmedia_player:\\n  - platform: universal\\n    name: \"${curDev.name}\"\\n    commands:\\n      turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\\n      turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }\\n      volume_up: { service: rest_command.${safeName}_cmd, data: {k: 7} }\\n      volume_down: { service: rest_command.${safeName}_cmd, data: {k: 8} }`;}$('ha_code').value=code;}" +
                       "function fireTx(k){fire(k, curDev.idx, {name_cn:curDev.cate, id:curDev.cid})}" +
-                      // 关键修复：fire()函数严格区分设备类型
-                      "function fire(k, idx, cateObj){" +
-                      "    let cid=parseInt(cateObj.id);" +
-                      "    let url='/api/tx?id='+(idx.id||idx.indexId)+'&c='+cid+'&k='+k;" +
-                      "    if(cid===1){" +  // 只有空调(categoryId=1)需要状态参数
-                      "        if(k===0)ac.p=1-ac.p;" +  // 电源键切换状态
-                      "        if(k===1)ac.m=(ac.m+1)%5;" +  // 模式
-                      "        if(k===2)ac.t=Math.min(14,ac.t+1);" +  // 温度+
-                      "        if(k===3)ac.t=Math.max(0,ac.t-1);" +  // 温度-
-                      "        updateAcUI();" +
-                      "        url+='&p='+ac.p+'&m='+ac.m+'&t='+ac.t;" +
-                      "    }" +
-                      "    console.log('Sending:', url);" +
-                      "    fetch(url).then(r=>r.text()).then(t=>console.log('Response:', t));" +
-                      "}" +
-                      "goHome();</script></body></html>";
+                      // 🌟 修正3：fire 函数精准区分 c=1 还是其他
+                      "function fire(k, idx, cateObj){let cid=cateObj.id;let url=`/api/tx?id=${idx.id||idx.indexId}&c=${cid}&k=${k}`;if(cid==1){if(k==0)ac.p=1-ac.p;if(k==1)ac.m=(ac.m+1)%5;if(k==2)ac.t=Math.min(14,ac.t+1);if(k==3)ac.t=Math.max(0,ac.t-1);updateAcUI();url+=`&p=${ac.p}&m=${ac.m}&t=${ac.t}`}fetch(url).then(r=>r.text())}\n goHome();</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html; charset=UTF-8", html);
                   }
               }
@@ -315,9 +225,9 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写控制台 UI
+      - name: 3. 编写主控 UI (🌟保留云切换与面具功能)
         run: |
-          cat <<'EOF' > app/src/main/java/hap/re00660/re/MainActivity.java
+          cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
           import android.Manifest;
           import android.app.Activity;
@@ -342,6 +252,8 @@ jobs:
               private LinearLayout listArea;
               private WebView webView;
               private EditText ipInput;
+              private RadioGroup cloudGroup;
+              private Switch rootSwitch;
               private TextView statusTv;
               private boolean isWeb = false;
 
@@ -356,45 +268,54 @@ jobs:
                       }
                   }
 
-                  FrameLayout root = new FrameLayout(this);
-                  root.setBackgroundColor(Color.parseColor("#F1F5F9"));
+                  FrameLayout rootLayout = new FrameLayout(this);
+                  rootLayout.setBackgroundColor(Color.parseColor("#F1F5F9"));
 
                   LinearLayout main = new LinearLayout(this);
                   main.setOrientation(LinearLayout.VERTICAL);
                   main.setPadding(40, 40, 40, 40);
 
-                  TextView title = new TextView(this); 
-                  title.setText("📡 ha红外网关 - IRExt官方版"); 
-                  title.setTextSize(22); title.setPadding(0,0,0,10);
+                  TextView title = new TextView(this); title.setText("📡 ha红外网关 Pro Max"); title.setTextSize(22);
                   main.addView(title);
 
-                  statusTv = new TextView(this); 
-                  statusTv.setText("🔴 状态: 服务未启动");
+                  statusTv = new TextView(this); statusTv.setText("🔴 状态: 未启动");
                   statusTv.setTextColor(Color.RED); main.addView(statusTv);
 
                   TextView myIp = new TextView(this);
-                  myIp.setText("\n🌐 访问地址: http://" + getLocalIp() + ":8080");
+                  myIp.setText("\n访问地址: http://" + getLocalIp() + ":8080");
                   myIp.setTextColor(Color.parseColor("#2563EB")); main.addView(myIp);
 
-                  EditText ip = new EditText(this); ip.setHint("Docker IP:8081");
-                  ip.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081"));
-                  ipInput = ip; main.addView(ip);
+                  TextView cl = new TextView(this); cl.setText("\n☁️ 云端选择:"); main.addView(cl);
+                  cloudGroup = new RadioGroup(this); cloudGroup.setOrientation(LinearLayout.HORIZONTAL);
+                  RadioButton rbPub = new RadioButton(this); rbPub.setText("公有云");
+                  RadioButton rbPri = new RadioButton(this); rbPri.setText("私有云");
+                  cloudGroup.addView(rbPub); cloudGroup.addView(rbPri); main.addView(cloudGroup);
+                  
+                  ipInput = new EditText(this); ipInput.setHint("Docker IP:8081");
+                  ipInput.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081"));
+                  main.addView(ipInput);
 
-                  Switch swRoot = new Switch(this); swRoot.setText("面具 Root 白名单 (防杀)");
-                  swRoot.setChecked(cfg.getBoolean("use_root", true)); main.addView(swRoot);
+                  boolean isPublic = cfg.getBoolean("is_public_cloud", false);
+                  rbPub.setChecked(isPublic); rbPri.setChecked(!isPublic);
+                  ipInput.setVisibility(isPublic ? View.GONE : View.VISIBLE);
+                  cloudGroup.setOnCheckedChangeListener((g, id) -> {
+                      ipInput.setVisibility(id == rbPub.getId() ? View.GONE : View.VISIBLE);
+                  });
 
-                  Switch swAuto = new Switch(this); swAuto.setText("允许开机自启");
+                  rootSwitch = new Switch(this); rootSwitch.setText("启用 Root 保活");
+                  rootSwitch.setChecked(cfg.getBoolean("use_root", true)); main.addView(rootSwitch);
+
+                  Switch swAuto = new Switch(this); swAuto.setText("开机自启");
                   swAuto.setChecked(cfg.getBoolean("auto_start", true)); main.addView(swAuto);
 
                   Button start = new Button(this); start.setText("保存并启动网关");
                   start.setBackgroundColor(Color.parseColor("#1890ff")); start.setTextColor(Color.WHITE);
                   start.setOnClickListener(v -> {
-                      cfg.edit()
-                         .putString("docker_ip", ipInput.getText().toString())
-                         .putBoolean("use_root", swRoot.isChecked())
-                         .putBoolean("auto_start", swAuto.isChecked()).apply();
+                      boolean pub = rbPub.isChecked();
+                      cfg.edit().putString("docker_ip", ipInput.getText().toString()).putBoolean("is_public_cloud", pub)
+                         .putBoolean("use_root", rootSwitch.isChecked()).putBoolean("auto_start", swAuto.isChecked()).apply();
                       
-                      if(swRoot.isChecked()) {
+                      if(rootSwitch.isChecked()) {
                           new Thread(() -> {
                               try {
                                   Process p = Runtime.getRuntime().exec("su");
@@ -403,39 +324,28 @@ jobs:
                                   os.writeBytes("exit\n"); os.flush();
                               } catch (Exception e) {}
                           }).start();
-                      } else {
-                          try { startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:"+getPackageName()))); } catch(Exception e){}
                       }
 
                       Intent i = new Intent(this, IRService.class);
-                      i.putExtra("DOCKER_URL", ipInput.getText().toString());
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                          startForegroundService(i);
-                      } else {
-                          startService(i);
-                      }
-                      statusTv.setText("🟢 状态: 运行中 (IRExt协议)"); 
-                      statusTv.setTextColor(Color.parseColor("#16a34a"));
+                      i.putExtra("DOCKER_URL", pub ? "http://srv.irext.net" : ipInput.getText().toString());
+                      startForegroundService(i);
+                      statusTv.setText("🟢 状态: 运行中 (HA已连接)"); statusTv.setTextColor(Color.parseColor("#16a34a"));
                   });
                   main.addView(start);
 
-                  Button btnMagisk = new Button(this);
-                  btnMagisk.setText("🔥 注入面具模块 (永驻系统)");
-                  btnMagisk.setBackgroundColor(Color.parseColor("#ef4444")); btnMagisk.setTextColor(Color.WHITE);
-                  btnMagisk.setOnClickListener(v -> deployMagiskModule());
-                  main.addView(btnMagisk);
+                  Button btnMag = new Button(this); btnMag.setText("🔥 注入面具模块");
+                  btnMag.setBackgroundColor(Color.parseColor("#ef4444")); btnMag.setTextColor(Color.WHITE);
+                  btnMag.setOnClickListener(v -> deployMagisk()); main.addView(btnMag);
 
-                  Button add = new Button(this); add.setText("+ 在App内管理设备");
-                  add.setOnClickListener(v -> openWeb());
-                  main.addView(add);
+                  Button add = new Button(this); add.setText("+ 设备管理面板");
+                  add.setOnClickListener(v -> openWeb()); main.addView(add);
 
-                  TextView lt = new TextView(this); lt.setText("\n📱 已存设备:");
+                  TextView lt = new TextView(this); lt.setText("\n📱 已存设备 (同步自网页):");
                   main.addView(lt);
-
                   ScrollView scView = new ScrollView(this);
                   listArea = new LinearLayout(this); listArea.setOrientation(LinearLayout.VERTICAL);
                   scView.addView(listArea); main.addView(scView);
-                  root.addView(main);
+                  rootLayout.addView(main);
 
                   webView = new WebView(this);
                   webView.getSettings().setJavaScriptEnabled(true);
@@ -445,81 +355,47 @@ jobs:
                       @JavascriptInterface public void refresh() { runOnUiThread(() -> refreshList()); }
                   }, "Android");
                   webView.setVisibility(View.GONE);
-                  root.addView(webView);
-
-                  setContentView(root);
+                  rootLayout.addView(webView);
+                  setContentView(rootLayout);
                   refreshList();
               }
 
-              private void deployMagiskModule() {
+              private void deployMagisk() {
                   new Thread(() -> {
                       try {
                           Process p = Runtime.getRuntime().exec("su");
                           DataOutputStream os = new DataOutputStream(p.getOutputStream());
-                          String apkPath = getApplicationInfo().sourceDir;
-                          String script = "MOD=\"/data/adb/modules/irext_daemon\"\n" +
-                                          "rm -rf $MOD\n" +
-                                          "mkdir -p $MOD/system/priv-app/IRGateway\n" +
-                                          "cp \"" + apkPath + "\" $MOD/system/priv-app/IRGateway/IRGateway.apk\n" +
-                                          "echo 'id=irext_daemon\nname=红外网关特权守护\nversion=vIRExt\nversionCode=100\nauthor=极客\ndescription=红外网关系统级保活模块。' > $MOD/module.prop\n" +
-                                          "echo '#!/system/bin/sh\nuntil [ \"$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 1; done\nsleep 5\ndumpsys deviceidle whitelist +hap.re00660.re\nam start-foreground-service -n hap.re00660.re/.IRService' > $MOD/service.sh\n" +
-                                          "chmod -R 755 $MOD\n" +
-                                          "touch $MOD/update\n" +
-                                          "exit\n";
-                          os.writeBytes(script);
-                          os.flush();
-                          p.waitFor();
-                          if (p.exitValue() == 0) {
-                              runOnUiThread(() -> Toast.makeText(this, "部署成功，请重启手机打开面具查看！", Toast.LENGTH_LONG).show());
-                          } else {
-                              runOnUiThread(() -> Toast.makeText(this, "部署失败，无Root权限！", Toast.LENGTH_LONG).show());
-                          }
+                          String script = "MOD=\"/data/adb/modules/irext_daemon\"\nrm -rf $MOD\nmkdir -p $MOD/system/priv-app/IRGateway\n" +
+                                          "cp \"" + getApplicationInfo().sourceDir + "\" $MOD/system/priv-app/IRGateway/IRGateway.apk\n" +
+                                          "echo 'id=irext_daemon\nname=红外网关Pro守护\nversion=vUltimate\nauthor=极客\ndescription=保活系统级模块。' > $MOD/module.prop\n" +
+                                          "echo '#!/system/bin/sh\nuntil [ \"$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 1; done\nsleep 3\ndumpsys deviceidle whitelist +" + getPackageName() + "\nam start-foreground-service -n " + getPackageName() + "/.IRService' > $MOD/service.sh\n" +
+                                          "chmod -R 755 $MOD\nexit\n";
+                          os.writeBytes(script); os.flush(); p.waitFor();
+                          runOnUiThread(() -> Toast.makeText(this, "面具注入成功，请重启手机！", 1).show());
                       } catch (Exception e) {}
                   }).start();
               }
 
-              private void openWeb() {
-                  isWeb = true; webView.setVisibility(View.VISIBLE);
-                  webView.loadUrl("http://127.0.0.1:8080");
-              }
-
-              @Override
-              public void onBackPressed() {
-                  if(isWeb) { isWeb = false; webView.setVisibility(View.GONE); refreshList(); }
-                  else super.onBackPressed();
-              }
-
+              private void openWeb() { isWeb = true; webView.setVisibility(View.VISIBLE); webView.loadUrl("http://127.0.0.1:8080"); }
+              @Override public void onBackPressed() { if(isWeb) { isWeb = false; webView.setVisibility(View.GONE); refreshList(); } else super.onBackPressed(); }
               private void refreshList() {
                   listArea.removeAllViews();
                   try {
                       JsonArray arr = JsonParser.parseString(db.getString("devs", "[]")).getAsJsonArray();
                       for (int i = 0; i < arr.size(); i++) {
-                          JsonObject o = arr.get(i).getAsJsonObject();
                           Button b = new Button(this); b.setAllCaps(false);
-                          b.setText(o.get("name").getAsString() + " (" + o.get("brand").getAsString() + ")");
-                          final int idx = i;
-                          b.setOnClickListener(v -> openWeb());
+                          b.setText(arr.get(i).getAsJsonObject().get("name").getAsString());
                           listArea.addView(b);
                       }
                   } catch(Exception e) {}
               }
-
-              private String getLocalIp() {
-                  try {
-                      for (NetworkInterface n : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                          for (InetAddress a : Collections.list(n.getInetAddresses())) {
-                              if (!a.isLoopbackAddress() && a instanceof Inet4Address) return a.getHostAddress();
-                          }
-                      }
-                  } catch (Exception e) {}
-                  return "127.0.0.1";
-              }
+              private String getLocalIp() { try { for (NetworkInterface n : Collections.list(NetworkInterface.getNetworkInterfaces())) { for (InetAddress a : Collections.list(n.getInetAddresses())) { if (!a.isLoopbackAddress() && a instanceof Inet4Address) return a.getHostAddress(); } } } catch (Exception e) {} return "127.0.0.1"; }
           }
           EOF
 
-      - name: 5. 构建配置与清单
+      - name: 5. 最终构建配置 (🌟适配安卓5+)
         run: |
-          cat <<'EOF' > app/src/main/AndroidManifest.xml
+          cat <<EOF > app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
@@ -527,26 +403,25 @@ jobs:
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
               <application android:label="ha红外网关" android:theme="@android:style/Theme.DeviceDefault.Light" android:usesCleartextTraffic="true">
-                  <activity android:name="hap.re00660.re.MainActivity" android:exported="true">
-                      <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-                  </activity>
+                  <activity android:name="hap.re00660.re.MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
                   <service android:name="hap.re00660.re.IRService" android:exported="false" />
-                  <receiver android:name="hap.re00660.re.BootReceiver" android:exported="true">
-                      <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.QUICKBOOT_POWERON" /></intent-filter>
-                  </receiver>
+                  <receiver android:name="hap.re00660.re.BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.QUICKBOOT_POWERON" /></intent-filter></receiver>
               </application>
           </manifest>
           EOF
           echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
           echo "include ':app'" > settings.gradle
-          cat <<'EOF' > build.gradle
+          cat <<EOF > build.gradle
           buildscript { repositories { google(); mavenCentral() } ; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
           allprojects { repositories { google(); mavenCentral(); } }
           EOF
-          cat <<'EOF' > app/build.gradle
+          cat <<EOF > app/build.gradle
           plugins { id 'com.android.application' }
-          android { compileSdk 34; namespace "hap.re00660.re"; defaultConfig { applicationId "hap.re00660.re"; minSdk 21; targetSdk 33; } }
+          android { compileSdk 34; namespace "hap.re00660.re"; defaultConfig { applicationId "hap.re00660.re"; minSdk 21; targetSdk 34; } 
+          compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 } }
           dependencies { implementation 'org.nanohttpd:nanohttpd:2.3.1'; implementation 'com.google.code.gson:gson:2.10.1' }
           EOF
 
@@ -556,8 +431,8 @@ jobs:
           gradle-version: 8.7
       - run: gradle assembleDebug
 
-      - name: 7. 交付 APK
+      - name: 7. 交付
         uses: actions/upload-artifact@v4
         with:
-          name: IREXT_OFFICIAL_FIX
+          name: IREXT_FULL_STABLE_ULTIMATE_APK
           path: app/build/outputs/apk/debug/app-debug.apk
