@@ -37,7 +37,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写核心服务 (🌟完整缝合：机顶盒逻辑+HA生成+全按键)
+      - name: 3. 编写核心服务 (修复版：正确区分设备类型+载波频率)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -90,9 +90,9 @@ jobs:
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) { }
               }
 
-              private void transmitAudioHeadset(int[] pattern) {
+              private void transmitAudioHeadset(int[] pattern, int carrierFreq) {
                   int sampleRate = 48000;
-                  int freq = 19000;
+                  int freq = carrierFreq;  // 使用传入的载波频率，而不是固定19k
                   int total = 0; for (int p : pattern) total += p;
                   int frames = (int)((total / 1000000.0) * sampleRate);
                   short[] buffer = new short[frames * 2];
@@ -179,11 +179,16 @@ jobs:
                               req.addProperty("indexId", p.get("id")); req.addProperty("keyCode", p.get("k"));
                               req.addProperty("directDecode", "0"); req.addProperty("paraData", "0");
                               
+                              // 修复：只有空调(c=1)才需要acStatus，且修正acPower逻辑
                               if ("1".equals(p.get("c"))) {
                                   JsonObject ac = new JsonObject();
-                                  ac.addProperty("acPower", "1".equals(p.get("p"))?"0":"1");
-                                  ac.addProperty("acMode", p.get("m")); ac.addProperty("acTemp", p.get("t"));
-                                  ac.addProperty("acWindSpeed","0"); ac.addProperty("acWindDir","0"); ac.addProperty("changeWindDir","0");
+                                  // 修复：p=1表示开机，对应acPower="1"；p=0表示关机，对应acPower="0"
+                                  ac.addProperty("acPower", "1".equals(p.get("p")) ? "1" : "0");
+                                  ac.addProperty("acMode", p.get("m") != null ? p.get("m") : "0"); 
+                                  ac.addProperty("acTemp", p.get("t") != null ? p.get("t") : "24");
+                                  ac.addProperty("acWindSpeed","0"); 
+                                  ac.addProperty("acWindDir","0"); 
+                                  ac.addProperty("changeWindDir","0");
                                   req.add("acStatus", ac);
                               }
                               
@@ -191,13 +196,20 @@ jobs:
                               JsonObject root = JsonParser.parseString(res).getAsJsonObject();
                               if (root.has("entity") && !root.get("entity").isJsonNull()) {
                                   JsonArray arr = root.getAsJsonArray("entity");
+                                  
+                                  // 修复：尝试从响应获取载波频率，默认38kHz
+                                  int carrierFreq = 38000;
+                                  if (root.has("carrierFrequency") && !root.get("carrierFrequency").isJsonNull()) {
+                                      carrierFreq = root.get("carrierFrequency").getAsInt();
+                                  }
+                                  
                                   int[] pat = new int[arr.size()];
                                   for (int i=0; i<arr.size(); i++) pat[i] = arr.get(i).getAsInt();
                                   
                                   if (ir != null && ir.hasIrEmitter() && !cfg.getBoolean("force_audio", false)) {
-                                      ir.transmit(38000, pat);
+                                      ir.transmit(carrierFreq, pat);
                                   } else {
-                                      transmitAudioHeadset(pat);
+                                      transmitAudioHeadset(pat, carrierFreq);
                                   }
                                   return newFixedLengthResponse("OK");
                               }
@@ -210,7 +222,7 @@ jobs:
                           }
                       } catch(Exception e) { }
                       
-                      // 🌟 网页 UI：机顶盒逻辑 + HA 配置 + 全按键 究极融合体
+                      // 修复版网页 UI：修复fire()函数，区分设备类型参数
                       String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>ha红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}.btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}.btn-r{background:#ff4d4f;color:#fff;border:none}.dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}textarea{width:100%;height:350px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#a9b7c6;padding:10px;border:1px solid #333;border-radius:8px}</style></head><body>" +
                       "<div id='views'><div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
                       "<div id='v_add'><div class='card'><h3><span onclick='goHome()' class='btn-back'>← 返回</span> 1. 选类型品牌</h3><select id='sc' onchange='checkCate()'></select>" +
@@ -241,9 +253,24 @@ jobs:
                       "function goCtrl(){view('v_ctrl')}" +
                       "function renderPanel(){let n=curDev.cate;let h='';let m=kmaps[n]||kmaps['电视机'];Object.keys(m).forEach(k=>{h+=`<button onclick='fireTx(${k})' class='btn'>${m[k]}</button>`});$('btns').innerHTML=h;if(n.includes('电视')||n.includes('机顶盒')||n.includes('IPTV')){let nh='';for(let i=0;i<=9;i++){nh+=`<button class='btn' onclick='fireTx(${14+i})'>${i}</button>`}$('num_btns').innerHTML=nh;$('num_btns').style.display='grid'}else{$('num_btns').style.display='none'}if(n.includes('空调')||curDev.cid==1){updateAcUI();$('ac_st').style.display='block'}else{$('ac_st').style.display='none'}}" +
                       "function updateAcUI(){$('ac_st').innerText=(ac.p?'ON':'OFF')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'°C'}" +
-                      "function showHA(){view('v_ha');let u=location.origin;let id=curDev.idx.id||curDev.idx.indexId;let safeName='ir_'+id;let code='';if(curDev.cate.includes('空调')||curDev.cid==1){code=`# HA 原生空调 (开关+调整)\nrest_command:\n  ${safeName}_set:\n    url: \"${u}/api/tx?id=${id}&c=1&k={{k}}&p={{p}}&m={{m}}&t={{t}}\"\n\nswitch:\n  - platform: template\n    switches:\n      ${safeName}_power:\n        friendly_name: \"${curDev.name} 电源\"\n        turn_on: { service: rest_command.${safeName}_set, data: {k: 0, p: 1, m: 0, t: 8} }\n        turn_off: { service: rest_command.${safeName}_set, data: {k: 0, p: 0, m: 0, t: 8} }\n\nscript:\n  ${safeName}_temp_up:\n    alias: \"${curDev.name} 温度+\"\n    sequence: [{ service: rest_command.${safeName}_set, data: {k: 2, p: 1, m: 0, t: 8} }]\n  ${safeName}_temp_down:\n    alias: \"${curDev.name} 温度-\"\n    sequence: [{ service: rest_command.${safeName}_set, data: {k: 3, p: 1, m: 0, t: 8} }]`;}else if(curDev.cate.includes('电视')||curDev.cate.includes('机顶盒')){code=`# 电视/机顶盒 (Media Player)\nrest_command:\n  ${safeName}_cmd: { url: \"${u}/api/tx?id=${id}&c=${curDev.cid}&k={{k}}&p=0&m=0&t=0\" }\n\nmedia_player:\n  - platform: universal\n    name: \"${curDev.name}\"\n    commands:\n      turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n      turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n      volume_up: { service: rest_command.${safeName}_cmd, data: {k: 7} }\n      volume_down: { service: rest_command.${safeName}_cmd, data: {k: 8} }\n      volume_mute: { service: rest_command.${safeName}_cmd, data: {k: 1} }`;}else{code=`# 通用设备配置\nrest_command:\n  ${safeName}_cmd: { url: \"${u}/api/tx?id=${id}&c=${curDev.cid}&k={{k}}&p=0&m=0&t=0\" }\n\nswitch:\n  - platform: template\n    switches:\n      ${safeName}:\n        friendly_name: \"${curDev.name}\"\n        turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n        turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }`;}$('ha_code').value=code;}" +
+                      "function showHA(){view('v_ha');let u=location.origin;let id=curDev.idx.id||curDev.idx.indexId;let safeName='ir_'+id;let code='';if(curDev.cate.includes('空调')||curDev.cid==1){code=`# HA 原生空调 (开关+调整)\nrest_command:\n  ${safeName}_set:\n    url: \"${u}/api/tx?id=${id}&c=1&k={{k}}&p={{p}}&m={{m}}&t={{t}}\"\n\nswitch:\n  - platform: template\n    switches:\n      ${safeName}_power:\n        friendly_name: \"${curDev.name} 电源\"\n        turn_on: { service: rest_command.${safeName}_set, data: {k: 0, p: 1, m: 0, t: 8} }\n        turn_off: { service: rest_command.${safeName}_set, data: {k: 0, p: 0, m: 0, t: 8} }\n\nscript:\n  ${safeName}_temp_up:\n    alias: \"${curDev.name} 温度+\"\n    sequence: [{ service: rest_command.${safeName}_set, data: {k: 2, p: 1, m: 0, t: 8} }]\n  ${safeName}_temp_down:\n    alias: \"${curDev.name} 温度-\"\n    sequence: [{ service: rest_command.${safeName}_set, data: {k: 3, p: 1, m: 0, t: 8} }]`;}else if(curDev.cate.includes('电视')||curDev.cate.includes('机顶盒')){code=`# 电视/机顶盒 (Media Player)\nrest_command:\n  ${safeName}_cmd: { url: \"${u}/api/tx?id=${id}&c=${curDev.cid}&k={{k}}\" }\n\nmedia_player:\n  - platform: universal\n    name: \"${curDev.name}\"\n    commands:\n      turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n      turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n      volume_up: { service: rest_command.${safeName}_cmd, data: {k: 7} }\n      volume_down: { service: rest_command.${safeName}_cmd, data: {k: 8} }\n      volume_mute: { service: rest_command.${safeName}_cmd, data: {k: 1} }`;}else{code=`# 通用设备配置\nrest_command:\n  ${safeName}_cmd: { url: \"${u}/api/tx?id=${id}&c=${curDev.cid}&k={{k}}\" }\n\nswitch:\n  - platform: template\n    switches:\n      ${safeName}:\n        friendly_name: \"${curDev.name}\"\n        turn_on: { service: rest_command.${safeName}_cmd, data: {k: 0} }\n        turn_off: { service: rest_command.${safeName}_cmd, data: {k: 0} }`;}$('ha_code').value=code;}" +
+                      // 修复：fireTx调用fire时传递cid
                       "function fireTx(k){fire(k, curDev.idx, {name_cn:curDev.cate, id:curDev.cid})}" +
-                      "function fire(k, idx, cateObj){let cid=cateObj.id;if(cid==1){if(k==0)ac.p=1-ac.p;if(k==1)ac.m=(ac.m+1)%5;if(k==2)ac.t=Math.min(14,ac.t+1);if(k==3)ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch(`/api/tx?id=${idx.id||idx.indexId}&c=${cid}&k=${k}&p=${ac.p}&m=${ac.m}&t=${ac.t}`).then(r=>r.text())}\n goHome();</script></body></html>";
+                      // 修复：fire()函数区分设备类型，电视/机顶盒不发送p/m/t参数
+                      "function fire(k, idx, cateObj){" +
+                      "    let cid=cateObj.id;" +
+                      "    let url='/api/tx?id='+(idx.id||idx.indexId)+'&c='+cid+'&k='+k;" +
+                      "    if(cid==1){" +  // 只有空调需要状态参数
+                      "        if(k==0)ac.p=1-ac.p;" +
+                      "        if(k==1)ac.m=(ac.m+1)%5;" +
+                      "        if(k==2)ac.t=Math.min(14,ac.t+1);" +
+                      "        if(k==3)ac.t=Math.max(0,ac.t-1);" +
+                      "        updateAcUI();" +
+                      "        url+='&p='+ac.p+'&m='+ac.m+'&t='+ac.t;" +
+                      "    }" +
+                      "    fetch(url).then(r=>r.text());" +
+                      "}" +
+                      "goHome();</script></body></html>";
                       return newFixedLengthResponse(Response.Status.OK, "text/html; charset=UTF-8", html);
                   }
               }
@@ -251,9 +278,9 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写控制台 UI (🌟完整保留注入和配置)
+      - name: 4. 编写控制台 UI (保留原有功能)
         run: |
-          cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
+          cat <<'EOF' > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
           import android.Manifest;
           import android.app.Activity;
@@ -301,7 +328,7 @@ jobs:
                   main.setPadding(40, 40, 40, 40);
 
                   TextView title = new TextView(this); 
-                  title.setText("📡 ha红外网关 - 大圆满版"); 
+                  title.setText("📡 ha红外网关 - 修复版"); 
                   title.setTextSize(22); title.setPadding(0,0,0,10);
                   main.addView(title);
 
@@ -454,7 +481,7 @@ jobs:
 
       - name: 5. 构建配置与清单
         run: |
-          cat <<EOF > app/src/main/AndroidManifest.xml
+          cat <<'EOF' > app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
@@ -475,11 +502,11 @@ jobs:
           EOF
           echo "android.useAndroidX=true" > gradle.properties
           echo "include ':app'" > settings.gradle
-          cat <<EOF > build.gradle
+          cat <<'EOF' > build.gradle
           buildscript { repositories { google(); mavenCentral() } ; dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
           allprojects { repositories { google(); mavenCentral(); } }
           EOF
-          cat <<EOF > app/build.gradle
+          cat <<'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android { compileSdk 34; namespace "hap.re00660.re"; defaultConfig { applicationId "hap.re00660.re"; minSdk 21; targetSdk 33; } }
           dependencies { implementation 'org.nanohttpd:nanohttpd:2.3.1'; implementation 'com.google.code.gson:gson:2.10.1' }
@@ -494,5 +521,5 @@ jobs:
       - name: 7. 交付 APK
         uses: actions/upload-artifact@v4
         with:
-          name: IREXT_GOD_MODE_APK
+          name: IREXT_GOD_MODE_APK_FIXED
           path: app/build/outputs/apk/debug/app-debug.apk
