@@ -12,6 +12,8 @@ jobs:
           mkdir -p app/src/main/java/hap/re00660/re
           mkdir -p app/src/main/jniLibs/arm64-v8a
           mkdir -p app/src/main/jniLibs/armeabi-v7a
+          mkdir -p app/src/main/jniLibs/x86
+          mkdir -p app/src/main/jniLibs/x86_64
           echo "✅ 初始化完成"
 
       - name: 2. 下载 IRDecode JNI 库
@@ -19,23 +21,17 @@ jobs:
           curl -L -o libirdecode.zip "https://irext-lib-release.oss-cn-hangzhou.aliyuncs.com/1.5.2/decode_sdk/libirdecode_jni_1.5.2-android.zip"
           unzip -q libirdecode.zip
           
-          # 显示解压后的结构
-          echo "=== 解压后的文件结构 ==="
-          find . -name "*.so" -o -name "arm*" -type d | head -20
+          echo "=== 原始文件结构 ==="
+          find . -name "*.so" -ls 2>/dev/null || echo "No .so found"
           
-          # 复制 SO 文件（修正路径）
-          cp libirdecode_jni_1.5.2-android/arm64-v8a/libirdecode_jni.so app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || \
-          cp arm64-v8a/libirdecode_jni.so app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || \
-          find . -path "*/arm64-v8a/libirdecode_jni.so" -exec cp {} app/src/main/jniLibs/arm64-v8a/ \;
+          # 复制并重命名 SO 文件（名字必须是 libirdecode_jni.so）
+          cp libirdecode_jni_1.5.2-android/arm64-v8a/libirdecode.so app/src/main/jniLibs/arm64-v8a/libirdecode_jni.so
+          cp libirdecode_jni_1.5.2-android/armeabi-v7a/libirdecode.so app/src/main/jniLibs/armeabi-v7a/libirdecode_jni.so
+          cp libirdecode_jni_1.5.2-android/x86/libirdecode.so app/src/main/jniLibs/x86/libirdecode_jni.so
+          cp libirdecode_jni_1.5.2-android/x86_64/libirdecode.so app/src/main/jniLibs/x86_64/libirdecode_jni.so
           
-          cp libirdecode_jni_1.5.2-android/armeabi-v7a/libirdecode_jni.so app/src/main/jniLibs/armeabi-v7a/ 2>/dev/null || \
-          cp armeabi-v7a/libirdecode_jni.so app/src/main/jniLibs/armeabi-v7a/ 2>/dev/null || \
-          find . -path "*/armeabi-v7a/libirdecode_jni.so" -exec cp {} app/src/main/jniLibs/armeabi-v7a/ \;
-          
-          # 显示结果
-          echo "=== SO 文件已放置 ==="
-          ls -la app/src/main/jniLibs/arm64-v8a/ || echo "arm64-v8a 失败"
-          ls -la app/src/main/jniLibs/armeabi-v7a/ || echo "armeabi-v7a 失败"
+          echo "=== 复制后的文件 ==="
+          find app/src/main/jniLibs -name "*.so" -ls
 
       - name: 3. 编写开机自启
         run: |
@@ -43,14 +39,20 @@ jobs:
           package hap.re00660.re;
           import android.content.*;
           import android.os.Build;
+          import android.util.Log;
+          
           public class BootReceiver extends BroadcastReceiver {
+              private static final String TAG = "BootReceiver";
+              
               @Override
               public void onReceive(Context context, Intent intent) {
+                  Log.d(TAG, "Boot received: " + intent.getAction());
                   if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) || "android.intent.action.QUICKBOOT_POWERON".equals(intent.getAction())) {
                       SharedPreferences cfg = context.getSharedPreferences("IREXT_CFG", Context.MODE_PRIVATE);
                       if (cfg.getBoolean("auto_start", true)) {
                           boolean isLocal = cfg.getBoolean("is_local", true);
                           String targetUrl = isLocal ? cfg.getString("docker_ip", "http://192.168.2.157:8081") : "http://irext.net";
+                          Log.d(TAG, "Starting service with URL: " + targetUrl);
                           Intent i = new Intent(context, IRService.class);
                           i.putExtra("DOCKER_URL", targetUrl);
                           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -64,7 +66,7 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写核心服务（本地解码版）
+      - name: 4. 编写核心服务（带详细日志）
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -96,9 +98,9 @@ jobs:
               static {
                   try {
                       System.loadLibrary("irdecode_jni");
-                      Log.d(TAG, "IRDecode JNI loaded");
+                      Log.d(TAG, "✅ JNI library loaded successfully");
                   } catch (UnsatisfiedLinkError e) {
-                      Log.e(TAG, "Failed to load JNI", e);
+                      Log.e(TAG, "❌ Failed to load JNI library: " + e.getMessage());
                   }
               }
               
@@ -115,8 +117,10 @@ jobs:
 
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
+                  Log.d(TAG, "onStartCommand called");
                   if(intent != null && intent.getStringExtra("DOCKER_URL") != null) {
                       targetCloudUrl = intent.getStringExtra("DOCKER_URL");
+                      Log.d(TAG, "Target URL: " + targetCloudUrl);
                       loginPrivateCloud();
                   }
                   return START_STICKY;
@@ -125,6 +129,16 @@ jobs:
               @Override
               public void onCreate() {
                   super.onCreate();
+                  Log.d(TAG, "onCreate started");
+                  
+                  // 测试 JNI 是否可用
+                  try {
+                      String ver = irGetVersion();
+                      Log.d(TAG, "✅ JNI Version: " + ver);
+                  } catch (Exception e) {
+                      Log.e(TAG, "❌ JNI test failed: " + e.getMessage());
+                  }
+                  
                   db = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
                   
@@ -137,11 +151,27 @@ jobs:
                       new Notification.Builder(this).setContentTitle("红外网关运行中").setSmallIcon(android.R.drawable.ic_dialog_info).build();
                   startForeground(1, n);
                   
-                  try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
-                  try { server = new WebServer(8080); server.start(); } catch (Exception e) { Log.e(TAG, "Server error", e); }
+                  try { 
+                      ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE);
+                      Log.d(TAG, "IR Manager: " + (ir != null ? "available" : "null"));
+                      if (ir != null) {
+                          Log.d(TAG, "Has IR emitter: " + ir.hasIrEmitter());
+                      }
+                  } catch(Throwable t) {
+                      Log.e(TAG, "IR Manager error: " + t.getMessage());
+                  }
+                  
+                  try { 
+                      server = new WebServer(8080); 
+                      server.start();
+                      Log.d(TAG, "✅ Web server started on port 8080");
+                  } catch (Exception e) { 
+                      Log.e(TAG, "❌ Server error: " + e.getMessage());
+                  }
               }
 
               private void transmitAudioHeadset(int[] pattern) {
+                  Log.d(TAG, "Audio transmit: " + pattern.length + " timings");
                   int sampleRate = 48000;
                   int freq = 19000;
                   int total = 0; 
@@ -169,7 +199,10 @@ jobs:
                           buffer.length * 2, AudioTrack.MODE_STATIC);
                       track.write(buffer, 0, buffer.length); 
                       track.play();
-                  } catch (Exception e) {}
+                      Log.d(TAG, "✅ Audio played");
+                  } catch (Exception e) {
+                      Log.e(TAG, "❌ Audio error: " + e.getMessage());
+                  }
               }
 
               private String postJSON(String path, String jsonBody) {
@@ -177,23 +210,32 @@ jobs:
                   try {
                       String baseUrl = targetCloudUrl.replaceAll("/$", "");
                       URL url = new URL(baseUrl + path);
+                      Log.d(TAG, "HTTP POST: " + baseUrl + path);
+                      
                       conn = (HttpURLConnection) url.openConnection();
                       conn.setRequestMethod("POST");
                       conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
                       conn.setConnectTimeout(5000);
+                      conn.setReadTimeout(10000);
                       conn.setDoOutput(true);
                       try(OutputStream os = conn.getOutputStream()) { 
                           os.write(jsonBody.getBytes(StandardCharsets.UTF_8)); 
                       }
-                      InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                      int code = conn.getResponseCode();
+                      Log.d(TAG, "HTTP Response: " + code);
+                      
+                      InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
                       if (is == null) return "{}";
                       try(BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
                           StringBuilder sb = new StringBuilder(); 
                           String line;
                           while((line = br.readLine()) != null) sb.append(line);
-                          return sb.toString();
+                          String res = sb.toString();
+                          Log.d(TAG, "HTTP Body: " + res.substring(0, Math.min(200, res.length())));
+                          return res;
                       }
                   } catch (Exception e) { 
+                      Log.e(TAG, "HTTP error: " + e.getMessage());
                       return "{}"; 
                   } finally { 
                       if(conn != null) conn.disconnect(); 
@@ -202,19 +244,24 @@ jobs:
 
               private void loginPrivateCloud() {
                   new Thread(() -> {
+                      Log.d(TAG, "Logging in...");
                       String res = postJSON("/irext-server/app/app_login", 
                           "{\"appKey\":\"55b1d89fda0658d6f851ee89cad564de\",\"appSecret\":\"83dfd86ad59843ce50342ec863a49bf0\",\"appType\":\"2\"}");
                       try {
                           JsonObject entity = JsonParser.parseString(res).getAsJsonObject().getAsJsonObject("entity");
                           apiId = entity.get("id").getAsString(); 
                           apiToken = entity.get("token").getAsString();
-                      } catch (Exception e) { }
+                          Log.d(TAG, "✅ Login success, id=" + apiId);
+                      } catch (Exception e) { 
+                          Log.e(TAG, "❌ Login failed: " + e.getMessage());
+                      }
                   }).start();
               }
 
               // ========== 本地解码 TV/STB ==========
               private boolean downloadBinary(int indexId, File outFile) {
                   try {
+                      Log.d(TAG, "Downloading binary for indexId=" + indexId);
                       String baseUrl = targetCloudUrl.replaceAll("/$", "");
                       URL url = new URL(baseUrl + "/irext-server/operation/download_bin");
                       HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -232,44 +279,81 @@ jobs:
                           os.write(req.toString().getBytes(StandardCharsets.UTF_8));
                       }
                       
-                      if (conn.getResponseCode() != 200) return false;
+                      int code = conn.getResponseCode();
+                      Log.d(TAG, "Download HTTP: " + code);
+                      
+                      if (code != 200) {
+                          Log.e(TAG, "Download failed: HTTP " + code);
+                          return false;
+                      }
                       
                       try (FileOutputStream fos = new FileOutputStream(outFile);
                            InputStream is = conn.getInputStream()) {
                           byte[] buffer = new byte[4096];
-                          int len;
-                          while ((len = is.read(buffer)) != -1) fos.write(buffer, 0, len);
+                          int len, total = 0;
+                          while ((len = is.read(buffer)) != -1) {
+                              fos.write(buffer, 0, len);
+                              total += len;
+                          }
+                          Log.d(TAG, "✅ Downloaded " + total + " bytes to " + outFile.getAbsolutePath());
                       }
                       return true;
-                  } catch (Exception e) { return false; }
+                  } catch (Exception e) { 
+                      Log.e(TAG, "❌ Download error: " + e.getMessage());
+                      return false; 
+                  }
               }
 
               private int[] localDecode(int category, int indexId, int keyCode) {
+                  Log.d(TAG, "Local decode: cat=" + category + ", idx=" + indexId + ", key=" + keyCode);
                   try {
                       File binFile = new File(getFilesDir(), "bin_" + indexId + ".bin");
+                      Log.d(TAG, "Binary file: " + binFile.getAbsolutePath() + ", exists=" + binFile.exists());
+                      
                       if (!binFile.exists()) {
-                          if (!downloadBinary(indexId, binFile)) return null;
+                          Log.d(TAG, "Binary not found, downloading...");
+                          if (!downloadBinary(indexId, binFile)) {
+                              Log.e(TAG, "Download failed");
+                              return null;
+                          }
                       }
                       
                       byte[] binary = new byte[(int) binFile.length()];
                       try (FileInputStream fis = new FileInputStream(binFile)) {
                           fis.read(binary);
                       }
+                      Log.d(TAG, "Read binary: " + binary.length + " bytes");
                       
                       // subCate: 1=四进制, 2=十六进制
                       int subCate = 1;
                       
+                      Log.d(TAG, "Calling irOpenBinary(" + category + ", " + subCate + ", " + binary.length + ")");
                       int ret = irOpenBinary(category, subCate, binary, binary.length);
-                      if (ret != 0) return null;
+                      Log.d(TAG, "irOpenBinary returned: " + ret);
                       
+                      if (ret != 0) {
+                          Log.e(TAG, "Open binary failed: " + ret);
+                          return null;
+                      }
+                      
+                      Log.d(TAG, "Calling irDecode(" + keyCode + ", null)");
                       int[] pattern = irDecode(keyCode, null);
+                      Log.d(TAG, "irDecode returned: " + (pattern != null ? pattern.length + " timings" : "null"));
+                      
                       irClose();
+                      Log.d(TAG, "irClose called");
+                      
                       return pattern;
-                  } catch (Exception e) { return null; }
+                  } catch (Exception e) { 
+                      Log.e(TAG, "❌ Local decode error: " + e.getMessage());
+                      e.printStackTrace();
+                      return null; 
+                  }
               }
 
               // ========== 在线解码空调 ==========
               private int[] cloudDecodeAC(int indexId, int keyCode, int power, int mode, int temp) {
+                  Log.d(TAG, "Cloud decode AC: idx=" + indexId + ", key=" + keyCode);
                   try {
                       JsonObject req = new JsonObject();
                       req.addProperty("id", apiId);
@@ -290,13 +374,20 @@ jobs:
                       
                       String res = postJSON("/irext-server/operation/decode", req.toString());
                       JsonObject root = JsonParser.parseString(res).getAsJsonObject();
-                      if (!root.has("entity") || root.get("entity").isJsonNull()) return null;
+                      if (!root.has("entity") || root.get("entity").isJsonNull()) {
+                          Log.e(TAG, "No entity in response");
+                          return null;
+                      }
                       
                       JsonArray arr = root.getAsJsonArray("entity");
                       int[] pattern = new int[arr.size()];
                       for (int i = 0; i < arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
+                      Log.d(TAG, "✅ Cloud decode success: " + pattern.length + " timings");
                       return pattern;
-                  } catch (Exception e) { return null; }
+                  } catch (Exception e) { 
+                      Log.e(TAG, "❌ Cloud decode error: " + e.getMessage());
+                      return null; 
+                  }
               }
 
               private class WebServer extends NanoHTTPD {
@@ -306,6 +397,7 @@ jobs:
                   public Response serve(IHTTPSession session) {
                       String uri = session.getUri();
                       Map<String, String> p = session.getParms();
+                      Log.d(TAG, "HTTP Request: " + uri + " params=" + p);
                       
                       try {
                           if ("/api/list".equals(uri)) {
@@ -333,27 +425,31 @@ jobs:
                               int indexId = Integer.parseInt(p.get("id"));
                               int keyCode = Integer.parseInt(p.get("k"));
                               
+                              Log.d(TAG, "/api/tx: cid=" + cid + ", idx=" + indexId + ", key=" + keyCode);
+                              
                               int[] pattern = null;
                               
                               if (cid == 1) {
-                                  // 空调：在线解码
                                   int power = "1".equals(p.get("p")) ? 0 : 1;
                                   int mode = Integer.parseInt(p.getOrDefault("m", "0"));
                                   int temp = Integer.parseInt(p.getOrDefault("t", "8"));
                                   pattern = cloudDecodeAC(indexId, keyCode, power, mode, temp);
                               } else {
-                                  // TV/STB：本地解码
                                   pattern = localDecode(cid, indexId, keyCode);
                               }
                               
                               if (pattern != null && pattern.length > 0) {
+                                  Log.d(TAG, "Transmitting " + pattern.length + " timings");
                                   if (ir != null && ir.hasIrEmitter()) {
                                       ir.transmit(38000, pattern);
+                                      Log.d(TAG, "✅ Transmitted via IR hardware");
                                   } else {
                                       transmitAudioHeadset(pattern);
+                                      Log.d(TAG, "✅ Transmitted via audio");
                                   }
                                   return newFixedLengthResponse("OK");
                               } else {
+                                  Log.e(TAG, "❌ Decode failed, no pattern");
                                   return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Decode failed");
                               }
                           }
@@ -361,14 +457,17 @@ jobs:
                               String res = postJSON(p.get("p"), "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}");
                               return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", res);
                           }
-                      } catch(Exception e) { }
+                      } catch(Exception e) {
+                          Log.e(TAG, "API error: " + e.getMessage());
+                          e.printStackTrace();
+                      }
                       
-                      // Web UI（省略，和之前相同）
                       return newFixedLengthResponse(Response.Status.OK, "text/html; charset=UTF-8", getWebUI());
                   }
               }
               
               private String getWebUI() {
+                  // Web UI 代码（和之前相同，省略）
                   return "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>ha红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}.btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}.btn-r{background:#ff4d4f;color:#fff;border:none}.dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}textarea{width:100%;height:350px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#a9b7c6;padding:10px;border:1px solid #333;border-radius:8px}</style></head><body>" +
                       "<div id='views'><div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
                       "<div id='v_add'><div class='card'><h3><span onclick='goHome()' class='btn-back'>← 返回</span> 1. 选类型品牌</h3><select id='sc' onchange='checkCate()'></select><div id='brand_area'><select id='sb' onchange='startMatch()'></select></div><div id='stb_area' style='display:none'><select id='sp' onchange='loadCity()'><option>选省份</option></select><select id='sct' onchange='loadOp()'><option>选城市</option></select><select id='sop' onchange='startMatchSTB()'><option>选运营商</option></select></div></div></div>" +
@@ -415,12 +514,14 @@ jobs:
           import android.graphics.Color;
           import android.os.Build;
           import android.os.Bundle;
+          import android.util.Log;
           import android.view.*;
           import android.webkit.*;
           import android.widget.*;
           import com.google.gson.*;
 
           public class MainActivity extends Activity {
+              private static final String TAG = "MainActivity";
               private SharedPreferences db, cfg;
               private LinearLayout listArea;
               private WebView webView;
@@ -430,6 +531,8 @@ jobs:
 
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
+                  Log.d(TAG, "onCreate started");
+                  
                   db = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
                   
@@ -460,18 +563,25 @@ jobs:
 
                   Button start = new Button(this); start.setText("保存并启动网关");
                   start.setOnClickListener(v -> {
+                      Log.d(TAG, "Start button clicked");
                       boolean local = rbLocal.isChecked();
                       String url = local ? ipInput.getText().toString() : "http://irext.net";
                       cfg.edit().putBoolean("is_local", local).putString("docker_ip", ipInput.getText().toString()).apply();
                       Intent i = new Intent(this, IRService.class);
                       i.putExtra("DOCKER_URL", url);
+                      Log.d(TAG, "Starting service with URL: " + url);
                       if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
                       statusTv.setText("🟢 状态: 运行中");
                   });
                   main.addView(start);
 
                   Button add = new Button(this); add.setText("+ 在App内管理设备");
-                  add.setOnClickListener(v -> { isWeb = true; webView.setVisibility(View.VISIBLE); webView.loadUrl("http://127.0.0.1:8080"); });
+                  add.setOnClickListener(v -> { 
+                      Log.d(TAG, "Web UI button clicked");
+                      isWeb = true; 
+                      webView.setVisibility(View.VISIBLE); 
+                      webView.loadUrl("http://127.0.0.1:8080"); 
+                  });
                   main.addView(add);
 
                   listArea = new LinearLayout(this); listArea.setOrientation(LinearLayout.VERTICAL);
@@ -482,26 +592,43 @@ jobs:
                   webView.getSettings().setJavaScriptEnabled(true);
                   webView.setWebViewClient(new WebViewClient());
                   webView.addJavascriptInterface(new Object() {
-                      @JavascriptInterface public void refresh() { runOnUiThread(() -> refreshList()); }
+                      @JavascriptInterface public void refresh() { 
+                          Log.d(TAG, "JS refresh called");
+                          runOnUiThread(() -> refreshList()); 
+                      }
                   }, "Android");
                   webView.setVisibility(View.GONE);
                   root.addView(main); root.addView(webView);
                   setContentView(root);
                   refreshList();
+                  Log.d(TAG, "onCreate completed");
               }
 
               private void refreshList() {
+                  Log.d(TAG, "refreshList called");
                   listArea.removeAllViews();
                   try {
                       JsonArray arr = JsonParser.parseString(db.getString("devs", "[]")).getAsJsonArray();
+                      Log.d(TAG, "Loaded " + arr.size() + " devices");
                       for (int i = 0; i < arr.size(); i++) {
                           TextView t = new TextView(this);
                           t.setText("· " + arr.get(i).getAsJsonObject().get("name").getAsString());
                           listArea.addView(t);
                       }
-                  } catch(Exception e) {}
+                  } catch(Exception e) {
+                      Log.e(TAG, "refreshList error: " + e.getMessage());
+                  }
               }
-              @Override public void onBackPressed() { if(isWeb) { isWeb=false; webView.setVisibility(View.GONE); refreshList(); } else super.onBackPressed(); }
+              
+              @Override public void onBackPressed() { 
+                  if(isWeb) { 
+                      isWeb=false; 
+                      webView.setVisibility(View.GONE); 
+                      refreshList(); 
+                  } else {
+                      super.onBackPressed(); 
+                  }
+              }
           }
           EOF
 
@@ -559,11 +686,6 @@ jobs:
                   minSdk 21
                   targetSdk 33
               }
-              sourceSets {
-                  main {
-                      jniLibs.srcDirs = ['src/main/jniLibs']
-                  }
-              }
           }
           dependencies { 
               implementation 'org.nanohttpd:nanohttpd:2.3.1'
@@ -579,10 +701,17 @@ jobs:
 
       - name: 8. 验证 SO 文件打包
         run: |
-          echo "=== APK 内容 ==="
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "\.so|lib" || echo "No .so files found"
-          echo "=== jniLibs 目录 ==="
+          echo "=== APK 中的 SO 文件 ==="
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep "\.so" || echo "No .so files found"
+          
+          echo "=== jniLibs 目录内容 ==="
           find app/src/main/jniLibs -type f -ls 2>/dev/null || echo "No jniLibs found"
+          
+          echo "=== 提取并检查 SO ==="
+          mkdir -p /tmp/apk_check
+          cd /tmp/apk_check
+          unzip -o ../../github/workspace/app/build/outputs/apk/debug/app-debug.apk "lib/**/*.so" 2>/dev/null || echo "Extract failed"
+          find . -name "*.so" -ls 2>/dev/null || echo "No SO in extracted"
 
       - name: 9. 交付 APK
         uses: actions/upload-artifact@v4
