@@ -86,6 +86,29 @@ jobs:
                   isRunning = true;
                   db = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
+                  
+                  // 🌟 Android 14 适配：启动前台服务
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                      startForeground(1, createNotification(), 
+                          android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                  } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      startForeground(1, createNotification());
+                  }
+                  
+                  try { 
+                      ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); 
+                  } catch(Throwable t) {}
+                  
+                  try { 
+                      server = new WebServer(serverPort); 
+                      server.start(); 
+                  } catch (Exception e) { 
+                      isRunning = false;
+                  }
+                  sendStatusBroadcast();
+              }
+              
+              private Notification createNotification() {
                   try {
                       Notification.Builder nb;
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -96,18 +119,12 @@ jobs:
                       } else {
                           nb = new Notification.Builder(this);
                       }
-                      nb.setContentTitle("红外网关运行中 (支持安卓5)");
+                      nb.setContentTitle("红外网关运行中");
                       nb.setSmallIcon(android.R.drawable.ic_dialog_info);
-                      startForeground(1, nb.build());
-                  } catch(Throwable t) {}
-                  try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
-                  try { 
-                      server = new WebServer(serverPort); 
-                      server.start(); 
-                  } catch (Exception e) { 
-                      isRunning = false;
+                      return nb.build();
+                  } catch(Throwable t) {
+                      return new Notification();
                   }
-                  sendStatusBroadcast();
               }
               
               @Override
@@ -1017,17 +1034,40 @@ jobs:
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
               <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.WAKE_LOCK" />
-              <application android:label="ha网关V3" android:theme="@android:style/Theme.DeviceDefault.Light" android:usesCleartextTraffic="true">
-                  <activity android:name="hap.re00660.re.MainActivity" android:exported="true">
-                      <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              
+              <application 
+                  android:label="ha网关V3" 
+                  android:theme="@android:style/Theme.DeviceDefault.Light" 
+                  android:usesCleartextTraffic="true"
+                  android:allowBackup="true">
+                  
+                  <activity 
+                      android:name="hap.re00660.re.MainActivity" 
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
                   </activity>
-                  <service android:name="hap.re00660.re.IRService" android:exported="false" />
-                  <receiver android:name="hap.re00660.re.BootReceiver" android:exported="true" android:enabled="true" android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+                  
+                  <service 
+                      android:name="hap.re00660.re.IRService" 
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse" />
+                  
+                  <receiver 
+                      android:name="hap.re00660.re.BootReceiver" 
+                      android:exported="true" 
+                      android:enabled="true" 
+                      android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
                       <intent-filter>
                           <action android:name="android.intent.action.BOOT_COMPLETED" />
                           <action android:name="android.intent.action.QUICKBOOT_POWERON" />
@@ -1047,12 +1087,29 @@ jobs:
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application' }
           android { 
-              compileSdk 34; 
-              namespace "hap.re00660.re"; 
-              defaultConfig { applicationId "hap.re00660.re"; minSdk 21; targetSdk 34; } 
-              compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+              compileSdk 33
+              namespace "hap.re00660.re"
+              defaultConfig { 
+                  applicationId "hap.re00660.re"
+                  minSdk 21
+                  targetSdk 33
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  debug {
+                      minifyEnabled false
+                  }
+              }
+              compileOptions { 
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
           }
-          dependencies { implementation 'org.nanohttpd:nanohttpd:2.3.1'; implementation 'com.google.code.gson:gson:2.10.1' }
+          dependencies { 
+              implementation 'org.nanohttpd:nanohttpd:2.3.1'
+              implementation 'com.google.code.gson:gson:2.10.1'
+          }
           EOF
       - name: 6. 编译 APK
         uses: gradle/actions/setup-gradle@v4
