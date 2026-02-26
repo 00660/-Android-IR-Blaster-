@@ -1,4 +1,4 @@
-name: IREXT_GATEWAY_ULTIMATE_PRO_V3
+name: IREXT_GATEWAY_ULTIMATE_PRO_V4
 
 on: [push, workflow_dispatch]
 
@@ -83,21 +83,21 @@ jobs:
               private int getKeyId(int cat, String k) {
                   if ((cat == 2 || cat == 3) && k.matches("\\d")) return 14 + Integer.parseInt(k);
                   String[][] maps = {
-                      {"电源","模式","温度+","温度-","N/A","N/A","N/A","温度+","温度-","风力","扫风","固定风"}, // 1
-                      {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","主页","设置"}, // 2
-                      {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}, // 3
-                      {"电源","上","下","左","右","确认","音量+","音量-","返回","菜单","主页"}, // 4
-                      {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}, // 5
-                      {"电源","上","下","左","右","确认","音量+","音量-","播放","暂停","弹出","回播","快进","菜单"}, // 6
-                      {"电源","上","下","左","右","确认","风力+","风力-","摇头","风力","风类","返回","主页","菜单"}, // 7
-                      {"电源","上","下","左","右","确认","音量+","音量-","缩小","菜单","放大","返回","主页","菜单"}, // 8
-                      {"电源","上","下","左","右","确认","音量+","音量-","静音","菜单","电源","返回","主页","菜单"}, // 9
-                      {"电源","色彩1","色彩2","色彩3","色彩4","色彩0","亮度+","亮度-","开","流光","关","返回","主页","菜单"}, // 10
-                      {"电源","前","后","左","右","起/停","+","-","自动","定点","速度","定时","回充","预约"}, // 12
-                      {"电源","上","下","左","右","离子","+","-","自动","风力","模式","定时","灯光","强力"}, // 13
-                      {"电源","风力+","风力-","定时-","定时+","自动","温度+","温度-","摇头","扩散","偏好","定时","睡眠","制冷"}, // 14
-                      {"电源","上","下","左","右","拍摄","焦距+","焦距-","照相","录像","定时","闪光","微距","夜景"}, // 15
-                      {"电源","温度+","温度-","定时-","定时+","自动","容积+","容积-","增容","保温","定时","节能","变频","数显"} // 16
+                      {"电源","模式","温度+","温度-","N/A","N/A","N/A","温度+","温度-","风力","扫风","固定风"}, // 1 空调
+                      {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","主页","设置"}, // 2 电视
+                      {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}, // 3 机顶盒
+                      {"电源","上","下","左","右","确认","音量+","音量-","返回","菜单","主页"}, // 4 网络盒子
+                      {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}, // 5 IPTV
+                      {"电源","上","下","左","右","确认","音量+","音量-","播放","暂停","弹出","回播","快进","菜单"}, // 6 DVD
+                      {"电源","上","下","左","右","确认","风力+","风力-","摇头","风力","风类","返回","主页","菜单"}, // 7 风扇
+                      {"电源","上","下","左","右","确认","音量+","音量-","缩小","菜单","放大","返回","主页","菜单"}, // 8 投影仪
+                      {"电源","上","下","左","右","确认","音量+","音量-","静音","菜单","电源","返回","主页","菜单"}, // 9 音响
+                      {"电源","色彩1","色彩2","色彩3","色彩4","色彩0","亮度+","亮度-","开","流光","关","返回","主页","菜单"}, // 10 灯
+                      {"电源","前","后","左","右","起/停","+","-","自动","定点","速度","定时","回充","预约"}, // 12 扫地机
+                      {"电源","上","下","左","右","离子","+","-","自动","风力","模式","定时","灯光","强力"}, // 13 净化器
+                      {"电源","风力+","风力-","定时-","定时+","自动","温度+","温度-","摇头","扩散","偏好","定时","睡眠","制冷"}, // 14 Dyson
+                      {"电源","上","下","左","右","拍摄","焦距+","焦距-","照相","录像","定时","闪光","微距","夜景"}, // 15 相机
+                      {"电源","温度+","温度-","定时-","定时+","自动","容积+","容积-","增容","保温","定时","节能","变频","数显"} // 16 热水器
                   };
                   int mIdx = (cat == 12) ? 10 : (cat > 12 ? cat - 2 : cat - 1);
                   if (mIdx >= 0 && mIdx < maps.length) {
@@ -166,7 +166,7 @@ jobs:
                               if (pattern != null) { 
                                   ir.transmit(38000, pattern); 
                                   if (irLogs.size() > 15) irLogs.remove(0);
-                                  irLogs.add("[" + k + "] 发射完成，码长: " + pattern.length);
+                                  irLogs.add("[" + k + "] 发射完成, 序列长度: " + pattern.length);
                                   return jsonResponse("{\"ok\":true}"); 
                               }
                           }
@@ -178,7 +178,7 @@ jobs:
                       } catch(Exception e) { return jsonResponse("{\"error\":\""+e.getMessage()+"\"}"); }
                       return newFixedLengthResponse(Response.Status.OK, "text/html", getWebUI());
                   }
-                  private Response jsonResponse(String json) { return newFixedLengthResponse(Response.Status.OK, "application/json", json); }
+                  private Response jsonResponse(String json) { return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", json); }
               }
 
               private String httpPost(String urlStr, String jsonBody, int timeout) throws Exception {
@@ -206,11 +206,11 @@ jobs:
                   "async function loadDevs(){ let r=await fetch('/api/list'); st.devs=await r.json(); render(); }" +
                   "function render(){ let h=''; if(st.v=='home'){ " +
                   "  h+='<div class=\"card\"><div class=\"header\"><h3>我的设备</h3><button class=\"btn-g\" onclick=\"st.v=\\'add\\';render()\">+ 添加</button></div>';" +
-                  "  if(st.devs.length==0) h+='<p style=\"color:#999;text-align:center\">暂无设备，请点击右上角添加</p>';" +
+                  "  if(st.devs.length==0) h+='<p style=\"color:#999;text-align:center\">暂无设备</p>';" +
                   "  st.devs.forEach((d,i)=>h+=`<div class=\"card\" onclick=\"goCtrl(${i})\"><b>${d.name||'未命名'}</b><br><small>${d.brand} · ${d.catName}</small></div>`);" +
                   "  h+='</div>';" +
                   "}else if(st.v=='add'){ " +
-                  "  h+='<div class=\"card\"><div class=\"header\"><h3>添加设备</h3><button onclick=\"st.v=\\'home\\';render()\">返回主页</button></div>';" +
+                  "  h+='<div class=\"card\"><div class=\"header\"><h3>添加设备</h3><button onclick=\"st.v=\\'home\\';render()\">返回</button></div>';" +
                   "  h+='<select id=\"sc\" onchange=\"loadBrands()\">'+CATS.map(c=>`<option value=\"${c.id}\">${c.n}</option>`).join('')+'</select>';" +
                   "  h+='<select id=\"sb\" onchange=\"loadIdxs()\"><option>请选择品牌</option></select><select id=\"si\"></select>';" +
                   "  h+='<button class=\"btn-p\" style=\"width:100%\" onclick=\"startTest()\">进入测试控制</button></div>';" +
@@ -236,7 +236,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写主界面 (Root+自启动+显示保存设备)
+      - name: 3. 编写主界面 (修复 Process 歧义 + 物理返回处理)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -287,7 +287,7 @@ jobs:
                   });
                   main.addView(startBtn);
 
-                  Button webBtn = new Button(this); webBtn.setText("进入控制中心");
+                  Button webBtn = new Button(this); webBtn.setText("进入控制中心 (网页版)");
                   webBtn.setOnClickListener(v -> { webView.setVisibility(View.VISIBLE); webView.loadUrl("http://127.0.0.1:8080"); });
                   main.addView(webBtn);
 
@@ -304,7 +304,7 @@ jobs:
               private void runRoot() {
                   new Thread(() -> {
                       try {
-                          Process p = Runtime.getRuntime().exec("su");
+                          java.lang.Process p = Runtime.getRuntime().exec("su");
                           DataOutputStream os = new DataOutputStream(p.getOutputStream());
                           os.writeBytes("dumpsys deviceidle whitelist +" + getPackageName() + "\n");
                           os.writeBytes("exit\n"); os.flush(); p.waitFor();
@@ -325,7 +325,7 @@ jobs:
                   try {
                       JsonArray arr = JsonParser.parseString(db.getString("devs", "[]")).getAsJsonArray();
                       if (arr.size() > 0) {
-                          TextView t1 = new TextView(this); t1.setText("\n已保存设备:"); t1.setTextColor(Color.GRAY); devList.addView(t1);
+                          TextView t1 = new TextView(this); t1.setText("\n已保存设备列表:"); t1.setTextColor(Color.GRAY); devList.addView(t1);
                           for (int i=0; i<arr.size(); i++) {
                               JsonObject d = arr.get(i).getAsJsonObject();
                               TextView t = new TextView(this); t.setText("▶ " + d.get("name").getAsString() + " (" + d.get("brand").getAsString() + ")");
@@ -342,7 +342,7 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写开机自启动逻辑
+      - name: 4. 编写自启动逻辑 (开机即运行)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/BootReceiver.java
           package hap.re00660.re;
@@ -361,7 +361,7 @@ jobs:
           }
           EOF
 
-      - name: 5. 编写构建脚本 (Gradle 顶级稳健版)
+      - name: 5. 构建脚本 (全权限配置)
         run: |
           cat <<'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -411,12 +411,12 @@ jobs:
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-      - name: 6. 编译并分发 APK
+      - name: 6. 编译并上传
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
       - run: gradle assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: IREXT_GATEWAY_ULTIMATE_PRO
+          name: IREXT_GATEWAY_FINAL_PRO
           path: app/build/outputs/apk/debug/app-debug.apk
