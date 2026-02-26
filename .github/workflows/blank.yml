@@ -728,6 +728,12 @@ jobs:
                   try {
                       SharedPreferences pref = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
                       String devsStr = pref.getString("devs", "[]");
+                      
+                      // 🌟 修复：如果字符串为空或null，使用空数组
+                      if(devsStr == null || devsStr.trim().isEmpty()) {
+                          devsStr = "[]";
+                      }
+                      
                       devices = JsonParser.parseString(devsStr).getAsJsonArray();
                       
                       if(devices.size() == 0) {
@@ -818,13 +824,15 @@ jobs:
                       }
                   } catch(Exception e) {
                       e.printStackTrace();
-                      TextView error = new TextView(this);
-                      error.setText("加载设备失败: " + e.getMessage());
-                      error.setTextColor(Color.parseColor("#ef4444"));
-                      deviceListContainer.addView(error);
+                      // 🌟 修复：解析失败也显示无设备，而不是错误
+                      TextView empty = new TextView(this);
+                      empty.setText("暂无设备\n请点击上方\"打开Web管理面板\"添加设备");
+                      empty.setTextColor(Color.parseColor("#999"));
+                      empty.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                      empty.setPadding(0, 50, 0, 50);
+                      deviceListContainer.addView(empty);
                   }
               }
-              
               private String[] getKeysForCategory(int catId, String cateName) {
                   if(catId >= 1 && catId <= 8 && KEY_MAPS[catId-1] != null) {
                       return KEY_MAPS[catId-1];
