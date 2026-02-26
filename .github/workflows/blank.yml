@@ -1,4 +1,4 @@
-name: IREXT_V7_STRICT_TABLE_MAPPING
+name: IREXT_V8_COMPILE_FIX
 
 on: [push, workflow_dispatch]
 
@@ -12,7 +12,7 @@ jobs:
           mkdir -p app/src/main/java/hap/re00660/re
           echo "✅ 初始化完成"
 
-      - name: 2. 编写开机广播 (安卓5专用)
+      - name: 2. 编写开机广播
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/BootReceiver.java
           package hap.re00660.re;
@@ -30,13 +30,14 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写核心服务 (🌟严格照表格映射 0-13)
+      - name: 3. 编写核心服务 (🌟补回IBinder引用，逻辑严格对应表格)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
           import android.app.*;
           import android.content.*;
           import android.hardware.ConsumerIrManager;
+          import android.os.IBinder; 
           import android.os.PowerManager;
           import fi.iki.elonen.NanoHTTPD;
           import java.io.*;
@@ -72,7 +73,6 @@ jobs:
                   db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
                   
-                  // 初始化配置
                   dockerUrl = cfg.getString("docker_ip", "http://192.168.1.100:8081");
                   localDecoderUrl = cfg.getString("local_decoder", "http://192.168.1.100:8082");
 
@@ -84,7 +84,7 @@ jobs:
                           getSystemService(NotificationManager.class).createNotificationChannel(
                               new NotificationChannel("IR", "IR", NotificationManager.IMPORTANCE_LOW));
                       }
-                      startForeground(1, nb.setContentTitle("红外网关V7").setContentText("严格表格映射版").setSmallIcon(android.R.drawable.ic_dialog_info).build());
+                      startForeground(1, nb.setContentTitle("红外网关V8").setContentText("表格映射修正版").setSmallIcon(android.R.drawable.ic_dialog_info).build());
                   } catch(Throwable t) {}
 
                   try {
@@ -135,68 +135,35 @@ jobs:
                   }).start();
               }
 
-              // 🌟🌟🌟 核心修改：完全按照你发的表格映射，一个字不差 🌟🌟🌟
-              // 返回值对应表格的 列号 (0-13)
+              // 🌟 严格对应表格映射 (0-13)
               private int getKeyId(int cat, String k) {
-                  // 数字键特殊处理 (如果表格里没有显式列出，通常也是走标准ID，但这里你的表格是功能键表)
-                  // 如果是纯数字，依旧保留 14+ 逻辑 (遥控器数字区)
                   if ((cat == 2 || cat == 3 || cat == 4) && k.matches("\\d+")) return 14 + Integer.parseInt(k);
 
                   String[] m = null;
                   switch(cat) {
-                      case 1: // 空调
-                          m = new String[]{"电源","模式","温度+","温度-","N/A","N/A","N/A","温度+","温度-","风力","扫风","固定风","N/A","N/A"}; 
-                          break;
-                      case 2: // 电视机
-                          m = new String[]{"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","主页","设置"}; 
-                          break;
-                      case 3: // 机顶盒
-                          m = new String[]{"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}; 
-                          break;
-                      case 5: // 网络盒子
-                          m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","返回","菜单","主页","N/A","N/A","N/A"}; 
-                          break;
-                      case 4: // IPTV
-                          m = new String[]{"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}; 
-                          break;
-                      case 11: // DVD (注意IRExt DVD类别通常是11或通用)
-                          m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","播放","暂停","弹出","回播","快进","菜单"}; 
-                          break;
-                      case 7: // 风扇
-                          m = new String[]{"电源","上","下","左","右","确认","风力+","风力-","摇头","风力","风类","返回","主页","菜单"}; 
-                          break;
-                      case 8: // 投影仪
-                          m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","缩小","菜单","放大","返回","主页","菜单"}; 
-                          break;
-                      case 9: // 音响
-                          m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","静音","菜单","电源","返回","主页","菜单"}; 
-                          break;
-                      case 10: // 灯
-                          m = new String[]{"电源","色彩1","色彩2","色彩3","色彩4","色彩0","亮度+","亮度-","开","流光","关","返回","主页","菜单"}; 
-                          break;
-                      case 12: // 扫地机器人
-                          m = new String[]{"电源","前","后","左","右","起/停","+","-","自动","定点","速度","定时","回充","预约"}; 
-                          break;
-                      case 13: // 空气净化器
-                          m = new String[]{"电源","上","下","左","右","离子","+","-","自动","风力","模式","定时","灯光","强力"}; 
-                          break;
-                      // Dyson, 相机, 热水器等略，逻辑同上
-                      default: 
-                          // 默认兜底
-                          m = new String[]{"电源","上","下","左","右","确认","返回","菜单"}; 
-                          break;
+                      case 1: m = new String[]{"电源","模式","温度+","温度-","N/A","N/A","N/A","温度+","温度-","风力","扫风","固定风","N/A","N/A"}; break;
+                      case 2: m = new String[]{"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","主页","设置"}; break;
+                      case 3: m = new String[]{"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}; break;
+                      case 5: m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","返回","菜单","主页","N/A","N/A","N/A"}; break;
+                      case 4: m = new String[]{"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"}; break;
+                      case 11: m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","播放","暂停","弹出","回播","快进","菜单"}; break;
+                      case 7: m = new String[]{"电源","上","下","左","右","确认","风力+","风力-","摇头","风力","风类","返回","主页","菜单"}; break;
+                      case 8: m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","缩小","菜单","放大","返回","主页","菜单"}; break;
+                      case 9: m = new String[]{"电源","上","下","左","右","确认","音量+","音量-","静音","菜单","电源","返回","主页","菜单"}; break;
+                      case 10: m = new String[]{"电源","色彩1","色彩2","色彩3","色彩4","色彩0","亮度+","亮度-","开","流光","关","返回","主页","菜单"}; break;
+                      case 12: m = new String[]{"电源","前","后","左","右","起/停","+","-","自动","定点","速度","定时","回充","预约"}; break;
+                      case 13: m = new String[]{"电源","上","下","左","右","离子","+","-","自动","风力","模式","定时","灯光","强力"}; break;
+                      default: m = new String[]{"电源","上","下","左","右","确认","返回","菜单"}; break;
                   }
                   
                   if(m != null) {
                       for(int i=0; i<m.length; i++) {
-                          // 🌟 返回 i (0-13)，严格对应表格列号，绝不+1
-                          if(m[i].equals(k)) return i; 
+                          if(m[i].equals(k)) return i; // 返回 0-13 索引
                       }
                   }
                   return -1;
               }
 
-              // 🌟 修正：电视等设备优先从本地 8082 获取 keys
               private Map<String, Object> batchDecodeLocal(String indexId, String type, int cat) {
                   String cacheKey = indexId + "_" + type;
                   if(decodeCache.containsKey(cacheKey)) return decodeCache.get(cacheKey);
@@ -204,7 +171,6 @@ jobs:
                   String req = String.format("{\"id\":\"%s\",\"token\":\"%s\",\"indexId\":\"%s\",\"deviceType\":\"%s\",\"categoryId\":%d}",
                       apiId, apiToken, indexId, type, cat);
                   String url = localDecoderUrl.endsWith("/") ? localDecoderUrl : localDecoderUrl + "/";
-                  // 8082 服务
                   String res = httpPost(url + "decode/all", req, 10000); 
                   try {
                       JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
@@ -230,7 +196,6 @@ jobs:
                   req.addProperty("indexId", indexId);
                   
                   if(cat == 1) {
-                      // 空调逻辑
                       if(op.equals("电源")) s.addProperty("acPower", s.get("acPower").getAsInt() == 0 ? 1 : 0);
                       else {
                           s.addProperty("acPower", 0);
@@ -240,7 +205,6 @@ jobs:
                       }
                       req.addProperty("keyCode", 0); req.add("acStatus", s);
                   } else {
-                      // 🌟 非空调设备，使用 getKeyId 获取表格对应的 0-13 索引
                       int kid = getKeyId(cat, op); 
                       if(kid == -1) return null;
                       req.addProperty("keyCode", kid);
@@ -288,29 +252,18 @@ jobs:
                           }
 
                           if ("/api/tx".equals(uri)) {
-                              String id = p.get("id"); 
-                              String k = p.get("k"); 
-                              int cat = Integer.parseInt(p.get("cat"));
+                              String id = p.get("id"); String k = p.get("k"); int cat = Integer.parseInt(p.get("cat"));
                               int[] pattern = null;
-
-                              // 电视/机顶盒等：优先查本地 8082 缓存
-                              // 8082 返回的 key 应该是 "0", "1", "2" 或者是 "电源", "静音"
-                              // 这里的 getKeyId(cat, k) 将 "电源" 转换为 0 (int)
-                              // 如果本地服务返回的是 int 索引 (如 "0": [...])，则需要转换 k
-                              
-                              if (cat != 1) { // 非空调
+                              if (cat != 1) { 
                                   Map<String, Object> cached = decodeCache.get(id + "_tv");
                                   if(cached == null) cached = batchDecodeLocal(id, "tv", cat);
                                   
                                   if(cached != null) {
                                       JsonObject keys = JsonParser.parseString((String)cached.get("keys")).getAsJsonObject();
-                                      
-                                      // 尝试直接用 k (如 "电源")
                                       if(keys.has(k)) {
                                           JsonArray arr = keys.getAsJsonObject(k).getAsJsonArray("timings");
                                           pattern = new int[arr.size()]; for(int i=0; i<arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
                                       } 
-                                      // 尝试用表格索引 (如 "0")
                                       else {
                                           int kid = getKeyId(cat, k);
                                           String kidStr = String.valueOf(kid);
@@ -321,12 +274,7 @@ jobs:
                                       }
                                   }
                               }
-
-                              // 仍未找到，走在线
-                              if (pattern == null) {
-                                  pattern = decodeOnline(id, cat, k);
-                              }
-
+                              if (pattern == null) pattern = decodeOnline(id, cat, k);
                               if(pattern != null && pattern.length > 0) { 
                                   ir.transmit(38000, pattern);
                                   return jsonResponse("{\"ok\":true}"); 
@@ -344,9 +292,8 @@ jobs:
                   }
                   private Response jsonResponse(String json) { return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", json); }
               }
-
+              
               private String getWebInterface() {
-                  // 前端映射表：必须和 Java 里的 getKeyId 严格一致
                   return "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>"
                       + "*{box-sizing:border-box}body{font-family:sans-serif;background:#f5f5f5;padding:15px;margin:0 auto;max-width:480px}"
                       + ".card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:15px}"
@@ -424,7 +371,7 @@ jobs:
                   main.setPadding(40, 40, 40, 40);
                   
                   TextView title = new TextView(this);
-                  title.setText("📡 红外网关 V7 (严格映射版)"); title.setTextSize(24);
+                  title.setText("📡 红外网关 V8 (IBinder修复)"); title.setTextSize(24);
                   main.addView(title);
                   
                   TextView l1 = new TextView(this); l1.setText("\n1. IRExt Docker (8081):"); main.addView(l1);
@@ -433,13 +380,13 @@ jobs:
                   ipInput.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081"));
                   main.addView(ipInput);
                   
-                  TextView l2 = new TextView(this); l2.setText("\n2. 本地解码服务 (8082, 必须对应表格):"); main.addView(l2);
+                  TextView l2 = new TextView(this); l2.setText("\n2. 本地解码服务 (8082, 0-13):"); main.addView(l2);
                   decoderInput = new EditText(this);
                   decoderInput.setText(cfg.getString("local_decoder", "http://192.168.1.100:8082"));
                   main.addView(decoderInput);
                   
                   Button btn = new Button(this);
-                  btn.setText("🚀 启动服务 (按键0-13)"); btn.setBackgroundColor(Color.parseColor("#1890ff")); btn.setTextColor(Color.WHITE);
+                  btn.setText("🚀 启动服务"); btn.setBackgroundColor(Color.parseColor("#1890ff")); btn.setTextColor(Color.WHITE);
                   btn.setOnClickListener(v -> {
                       cfg.edit()
                          .putString("docker_ip", ipInput.getText().toString())
@@ -454,7 +401,7 @@ jobs:
                       } else {
                           startService(i);
                       }
-                      Toast.makeText(this, "服务已启动，按键映射已修正", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(this, "服务已启动", Toast.LENGTH_SHORT).show();
                   });
                   main.addView(btn);
                   
@@ -498,7 +445,7 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
               <uses-permission android:name="android.permission.WAKE_LOCK" />
-              <application android:label="红外网关V7" android:theme="@android:style/Theme.DeviceDefault.Light" android:usesCleartextTraffic="true">
+              <application android:label="红外网关V8" android:theme="@android:style/Theme.DeviceDefault.Light" android:usesCleartextTraffic="true">
                   <activity android:name="hap.re00660.re.MainActivity" android:exported="true">
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
                   </activity>
@@ -545,5 +492,5 @@ jobs:
       - name: 7. 交付 APK
         uses: actions/upload-artifact@v4
         with:
-          name: IREXT_V7_STRICT_TABLE_MAPPING
+          name: IREXT_V8_COMPILE_FIX
           path: app/build/outputs/apk/debug/app-debug.apk
