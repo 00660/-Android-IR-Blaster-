@@ -1,4 +1,4 @@
-name: IREXT_ANDROID5_CLOUD_SWITCH_PRO_V4
+name: IREXT_ANDROID5_CLOUD_SWITCH_PRO_V4_FIXED
 
 on: [push, workflow_dispatch]
 
@@ -12,7 +12,7 @@ jobs:
           mkdir -p app/src/main/java/hap/re00660/re
           echo "✅ 初始化完成"
       
-      - name: 2. 编写开机自启广播 (🌟兼容安卓5)
+      - name: 2. 编写开机自启广播
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/BootReceiver.java
           package hap.re00660.re;
@@ -25,7 +25,7 @@ jobs:
                       SharedPreferences cfg = context.getSharedPreferences("IREXT_CFG", Context.MODE_PRIVATE);
                       if (cfg.getBoolean("auto_start", true)) {
                           Intent i = new Intent(context, IRService.class);
-                          boolean isPublic = cfg.getBoolean("is_public_cloud", false);
+                          boolean isPublic = cfg.getBoolean("is_public_cloud", true);
                           i.putExtra("CLOUD_URL", isPublic ? "https://srv.irext.net" : cfg.getString("docker_ip", "http://192.168.1.100:8081"));
                           i.putExtra("LOCAL_DECODER_URL", cfg.getString("local_decoder", "http://192.168.1.100:8082"));
                           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -39,7 +39,7 @@ jobs:
           }
           EOF
 
-      - name: 3. 编写核心服务 (🌟修正API路径+全部设备类型)
+      - name: 3. 编写核心服务
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -394,13 +394,12 @@ jobs:
           }
           EOF
 
-      - name: 4. 编写主控台 UI (🌟修正SharedPreferences+服务状态+电池白名单)
+      - name: 4. 编写主控台 UI (🌟修复lambda final问题)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
           import android.app.Activity;
           import android.content.*;
-          import android.content.pm.PackageManager;
           import android.graphics.Color;
           import android.net.Uri;
           import android.os.Build;
@@ -692,12 +691,12 @@ jobs:
               
               private void refreshList() {
                   listArea.removeAllViews();
+                  SharedPreferences db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
+                  String devsStr = db.getString("devs", "[]");
                   try {
-                      SharedPreferences db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
-                      String devsStr = db.getString("devs", "[]");
                       JsonArray arr = JsonParser.parseString(devsStr).getAsJsonArray();
                       for (int i = 0; i < arr.size(); i++) {
-                          final int idx = i; // 🌟 修复: 声明 final 变量供 Lambda 使用
+                          final int index = i; // 🌟 修复：使用final变量
                           JsonObject o = arr.get(i).getAsJsonObject();
                           LinearLayout item = new LinearLayout(this);
                           item.setOrientation(LinearLayout.HORIZONTAL);
@@ -713,9 +712,11 @@ jobs:
                           del.setText("删除");
                           del.setTextSize(12);
                           del.setOnClickListener(v -> {
+                              // 🌟 修复：在lambda中使用final index
                               JsonArray newList = new JsonArray();
-                              // 🌟 修复: 使用 idx 替代 i
-                              for(int j=0; j<arr.size(); j++) if(j!=idx) newList.add(arr.get(j));
+                              for(int j=0; j<arr.size(); j++) {
+                                  if(j != index) newList.add(arr.get(j));
+                              }
                               db.edit().putString("devs", newList.toString()).apply();
                               refreshList();
                           });
@@ -805,5 +806,5 @@ jobs:
       - name: 7. 交付 APK
         uses: actions/upload-artifact@v4
         with:
-          name: IREXT_ANDROID5_CLOUD_SWITCH_PRO_V4
+          name: IREXT_ANDROID5_CLOUD_SWITCH_PRO_V4_FIXED
           path: app/build/outputs/apk/debug/app-debug.apk
