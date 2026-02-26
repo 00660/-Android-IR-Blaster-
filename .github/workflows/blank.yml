@@ -447,12 +447,13 @@ jobs:
                       ".log-source{background:#1890ff;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px}"+
                       ".log-device{font-weight:bold;color:#333;margin-bottom:5px}"+
                       ".log-key{color:#1890ff;font-weight:bold}"+
-                      ".log-timings{background:#fff;padding:10px;border-radius:4px;margin-top:8px;max-height:200px;overflow-y:auto;border:1px solid #e9ecef;color:#495057;line-height:1.5}"+
+                      ".log-timings{background:#fff;padding:10px;border-radius:4px;margin-top:8px;border:1px solid #e9ecef;color:#495057;line-height:1.5;white-space:pre-wrap;word-break:break-all}"+
+                      ".match-log-entry{background:#f0f7ff;border-left:4px solid #1890ff;padding:10px;margin-bottom:8px;border-radius:4px;font-family:monospace;font-size:11px}"+
                       "</style></head><body>" +
                       "<div id='views'>"+
                       "<div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
                       "<div id='v_add'><div class='card'><h3><span onclick='goHome()' class='btn-back'>← 返回</span> 1. 选类型品牌</h3><select id='sc' onchange='lb()'></select><select id='sb' onchange='startMatch()'></select></div></div>" +
-                      "<div id='v_match'><div class='card'><h3><span onclick='view(\"v_add\")' class='btn-back'>← 返回</span> 匹配中</h3><div style='text-align:center;margin:15px 0'>方案 <b id='midx' style='color:#1890ff;font-size:24px'>1</b> / <span id='mtotal'>0</span></div><p id='bg_prog' style='font-size:12px;color:#999;text-align:center'></p><button class='btn btn-p' style='height:80px' onclick='testPwr()'>📡 发送电源测试</button><div class='panel' style='grid-template-columns:1fr 1fr'><button class='btn' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应</button></div></div></div>" +
+                      "<div id='v_match'><div class='card'><h3><span onclick='view(\"v_add\")' class='btn-back'>← 返回</span> 匹配中</h3><div style='text-align:center;margin:15px 0'>方案 <b id='midx' style='color:#1890ff;font-size:24px'>1</b> / <span id='mtotal'>0</span></div><p id='bg_prog' style='font-size:12px;color:#999;text-align:center'></p><button class='btn btn-p' style='height:80px' onclick='testPwr()'>📡 发送电源测试</button><div class='panel' style='grid-template-columns:1fr 1fr'><button class='btn' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应</button></div></div><div class='card' id='match_log_card' style='display:none;margin-top:15px'><h3>📟 实时发射日志</h3><div id='match_log' style='font-family:monospace;font-size:11px;background:#f8f9fa;padding:10px;border-radius:8px;max-height:300px;overflow-y:auto;word-break:break-all'></div></div></div>" +
                       "<div id='v_save'><div class='card'><h3><span onclick='view(\"v_match\")' class='btn-back'>← 返回</span> 3. 取名保存</h3><input id='d_name'><button class='btn btn-g' onclick='doSave()'>确认保存</button></div></div>" +
                       "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-back' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-family:monospace'></div><div class='panel' id='btns'></div><div class='panel num-grid' id='num_btns' style='display:none'></div><button class='btn btn-y' style='margin-top:20px' onclick='showRaw()'>📟 查看原始码</button><button class='btn' style='background:#fdf2f2;color:#ef4444;border-color:#fecaca;margin-top:10px' onclick='showHA()'>🛠️ HA 配置代码</button><button class='btn btn-r' style='margin-top:10px' onclick='delDev()'>删除设备</button></div></div>" +
                       "<div id='v_ha'><div class='card'><h3>🛠️ HA YAML <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><textarea id='ha_code' readonly onclick='this.select()'></textarea></div></div>" +
@@ -467,7 +468,8 @@ jobs:
                       "function lb(){fetch('/api/proxy?p=/irext-server/indexing/list_brands&b=\\\"categoryId\\\":\\\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"500\\\"').then(r=>r.json()).then(d=>{bs=d;$('sb').innerHTML='<option>选择品牌</option>'+d.map((b,i)=>'<option value='+i+'>'+(b.name_cn||b.name)+'</option>')})}" +
                       "function startMatch(){fetch('/api/proxy?p=/irext-server/indexing/list_indexes&b=\\\"categoryId\\\":\\\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\\\",\\\"brandId\\\":\\\"'+(bs[$('sb').value].id||bs[$('sb').value].brandId)+'\\\",\\\"cityCode\\\":\\\"\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"500\\\"').then(r=>r.json()).then(d=>{is=d;curr=0;tvDec={};view('v_match');$('midx').innerText=1;$('mtotal').innerText=is.length;let c=cs[$('sc').value];if((c.name_cn||c.name).includes('电视')||(c.name_cn||c.name).includes('机顶盒')||(c.name_cn||c.name).includes('投影')||(c.name_cn||c.name).includes('盒子'))bgLoop()})}" +
                       "async function bgLoop(){for(let i=0;i<is.length;i++){if(!tvDec[i]){await fetch('/api/batch_decode?indexId='+is[i].id+'&type=tv&cat=2');tvDec[i]=true;if($('bg_prog'))$('bg_prog').innerText=`后台解码: ${Object.keys(tvDec).length}/${is.length}`;}}}" +
-                      "function testPwr(){let c=cs[$('sc').value];let k=(c.name_cn||c.name)=='空调'?0:'电源';fire(k,is[curr],c)}" +
+                      "function showMatchLog(){let logDiv=$('match_log');let card=$('match_log_card');if(!logDiv||!card)return;fetch('/api/raw_logs').then(r=>r.json()).then(logs=>{if(logs.length>0){card.style.display='block';let latest=logs[0];let html=`<div class='match-log-entry'><div style='display:flex;justify-content:space-between;margin-bottom:5px'><b>${latest.device}</b><span style='color:#1890ff'>${latest.key}</span></div><div style='color:#666;font-size:10px;margin-bottom:5px'>${latest.source} | ${latest.timings.length}个时长 | ${latest.time}</div><div style='background:#fff;padding:8px;border-radius:4px;border:1px solid #e9ecef;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-size:10px;line-height:1.4'>${latest.timings.join(', ')}</div></div>`;logDiv.innerHTML=html;}})}" +
+                      "function testPwr(){let c=cs[$('sc').value];let k=(c.name_cn||c.name)=='空调'?0:'电源';fire(k,is[curr],c);setTimeout(showMatchLog,500)}" +
                       "function next(){if(curr<is.length-1){curr++;$('midx').innerText=curr+1;testPwr()}else{alert('试完了')}}" +
                       "function preSave(){view('v_save');let c=$('sc').value,b=bs[$('sb').value];$('d_name').value=(b.name_cn||b.name||'')+' '+(c.name_cn||c.name||'')}" +
                       "function doSave(){let d={name:$('d_name').value,cate:cs[$('sc').value].name_cn||cs[$('sc').value].name,brand:bs[$('sb').value].name_cn||bs[$('sb').value].name,idx:is[curr],cid:cs[$('sc').value].id||cs[$('sc').value].categoryId};fetch('/api/save',{method:'POST',body:JSON.stringify(d)}).then(()=>{goHome()})}" +
@@ -480,7 +482,7 @@ jobs:
                       "function showRaw(){view('v_raw');fetch('/api/raw_logs').then(r=>r.json()).then(logs=>{let h='';if(logs.length===0){h='<p style=\\\"text-align:center;color:#999;padding:40px\\\">暂无记录<br>请先操作设备发射红外码</p>'}else{logs.forEach(log=>{let timingsStr=log.timings.join(', ');h+=`<div class='log-full'><div class='log-header'><span class='log-time'>${log.time}</span><span class='log-source'>${log.source}</span></div><div class='log-device'>${log.device} <span class='log-key'>${log.key}</span></div><div style='color:#666;margin-top:5px'>载波频率: ${log.carrier}Hz | 时长数量: ${log.timings.length}个</div><div class='log-timings'>${timingsStr}</div></div>`;});}$('raw_list').innerHTML=h;});}" +
                       "function clearRaw(){if(confirm('确定清空所有记录？')){fetch('/api/raw_logs/clear').then(()=>showRaw())}}" +
                       "function fireTx(k){fire(k, curDev.idx, curDev.cid)}" +
-                      "function fire(k, idx, cat){let cid=typeof cat==='object'?cat.id||cat.categoryId:parseInt(cat);if(cid==1){if(k=='电源')ac.p=1-ac.p;if(k=='模式')ac.m=(ac.m+1)%5;if(k=='温度+')ac.t=Math.min(14,ac.t+1);if(k=='温度-')ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch(`/api/tx?id=${idx.id||idx.indexId}&cat=${cid}&k=${encodeURIComponent(k)}`).then(r=>r.text())}\n" +
+                      "function fire(k, idx, cat){let cid=typeof cat==='object'?cat.id||cat.categoryId:parseInt(cat);if(cid==1){if(k=='电源')ac.p=1-ac.p;if(k=='模式')ac.m=(ac.m+1)%5;if(k=='温度+')ac.t=Math.min(14,ac.t+1);if(k=='温度-')ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch(`/api/tx?id=${idx.id||idx.indexId}&cat=${cid}&k=${encodeURIComponent(k)}`).then(r=>r.text()).then(()=>{if($('v_match')&&$('v_match').style.display==='block')setTimeout(showMatchLog,300)})}" +
                       "goHome();</script></body></html>";
               }
               @Override public IBinder onBind(Intent intent) { return null; }
@@ -797,7 +799,6 @@ jobs:
               }
           }
           EOF
-
       - name: 5. 构建配置与清单
         run: |
           cat <<EOF > app/src/main/AndroidManifest.xml
@@ -842,7 +843,6 @@ jobs:
           }
           dependencies { implementation 'org.nanohttpd:nanohttpd:2.3.1'; implementation 'com.google.code.gson:gson:2.10.1' }
           EOF
-
       - name: 6. 编译 APK
         uses: gradle/actions/setup-gradle@v4
         with:
