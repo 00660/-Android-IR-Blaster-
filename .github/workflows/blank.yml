@@ -723,13 +723,12 @@ jobs:
                   checkServiceStatus();
               }
               
-              private void refreshDeviceList() {
+               private void refreshDeviceList() {
                   deviceListContainer.removeAllViews();
                   try {
                       SharedPreferences pref = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
                       String devsStr = pref.getString("devs", "[]");
                       
-                      // 🌟 修复：如果字符串为空或null，使用空数组
                       if(devsStr == null || devsStr.trim().isEmpty()) {
                           devsStr = "[]";
                       }
@@ -739,8 +738,8 @@ jobs:
                       if(devices.size() == 0) {
                           TextView empty = new TextView(this);
                           empty.setText("暂无设备\n请点击上方\"打开Web管理面板\"添加设备");
-                          empty.setTextColor(Color.parseColor("#999"));
-                          empty.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                          empty.setTextColor(Color.parseColor("#999999"));
+                          empty.setGravity(Gravity.CENTER);
                           empty.setPadding(0, 50, 0, 50);
                           deviceListContainer.addView(empty);
                           return;
@@ -824,11 +823,11 @@ jobs:
                       }
                   } catch(Exception e) {
                       e.printStackTrace();
-                      // 🌟 修复：解析失败也显示无设备，而不是错误
+                      // 🌟 修复：异常时显示无设备，不闪退
                       TextView empty = new TextView(this);
                       empty.setText("暂无设备\n请点击上方\"打开Web管理面板\"添加设备");
-                      empty.setTextColor(Color.parseColor("#999"));
-                      empty.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                      empty.setTextColor(Color.parseColor("#999999"));
+                      empty.setGravity(Gravity.CENTER);
                       empty.setPadding(0, 50, 0, 50);
                       deviceListContainer.addView(empty);
                   }
