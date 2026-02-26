@@ -733,6 +733,10 @@ jobs:
                           String brand = dev.get("brand").getAsString();
                           String cate = dev.get("cate").getAsString();
                           
+                          // 🌟 修复：必须是 final 变量才能在 lambda 中使用
+                          final int finalIndex = i;
+                          final String finalName = name;
+                          
                           LinearLayout card = new LinearLayout(this);
                           card.setOrientation(LinearLayout.VERTICAL);
                           card.setBackgroundColor(Color.WHITE);
@@ -769,9 +773,8 @@ jobs:
                               btn.setBackgroundColor(Color.parseColor("#eff6ff"));
                               btn.setTextColor(Color.parseColor("#1d4ed8"));
                               
-                              final int idx = i;
                               final String k = key;
-                              btn.setOnClickListener(v -> sendCommand(idx, k));
+                              btn.setOnClickListener(v -> sendCommand(finalIndex, k));
                               
                               GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
                               glp.width = 0;
@@ -788,7 +791,8 @@ jobs:
                           btnDel.setTextSize(12);
                           btnDel.setBackgroundColor(Color.parseColor("#fee2e2"));
                           btnDel.setTextColor(Color.parseColor("#dc2626"));
-                          btnDel.setOnClickListener(v -> confirmDelete(i, name));
+                          // 🌟 修复：使用 final 变量
+                          btnDel.setOnClickListener(v -> confirmDelete(finalIndex, finalName));
                           GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
                           glp.width = 0;
                           glp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
