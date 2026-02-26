@@ -38,8 +38,7 @@ jobs:
               }
           }
           EOF
-
-      - name: 3. 编写核心服务 (🌟V3原版+移植V2电视解码方法体+修复bug+原始码输出)
+      - name: 3. 编写核心服务 (修复8081本地Docker路径)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
@@ -59,7 +58,7 @@ jobs:
               private WebServer server;
               private ConsumerIrManager ir;
               private SharedPreferences db, cfg;
-              private String targetCloudUrl = "http://srv.irext.net";
+              private String targetCloudUrl = "https://srv.irext.net";
               private String localDecoderUrl = "http://192.168.1.100:8082";
               private String apiId = "", apiToken = "";
               private String APP_KEY = "55b1d89fda0658d6f851ee89cad564de";
@@ -68,9 +67,8 @@ jobs:
               private Map<String, JsonObject> acStateCache = new HashMap<>();
               private boolean isRunning = false;
               private int serverPort = 8080;
-              // 🌟 添加原始码日志缓存
               private List<Map<String, Object>> rawCodeLog = new ArrayList<>();
-              private static final int MAX_LOG_SIZE = 50;
+              private static final int MAX_LOG_SIZE = 100;
               
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
@@ -162,34 +160,21 @@ jobs:
                   } catch (Exception e) {}
               }
               
-              // V3原版的postJSON - 2个参数
-              private String postJSON(String path, String jsonBody) {
-                  return postJSON(path, jsonBody, targetCloudUrl);
-              }
-              
-              // 重载方法支持指定baseUrl
-              private String postJSON(String path, String jsonBody, String baseUrl) {
+              private String postJSON(String fullUrl, String jsonBody) {
                   HttpURLConnection conn = null;
                   try {
-                      String fullUrl = baseUrl;
-                      if(!fullUrl.endsWith("/")) fullUrl += "/";
-                      // 🌟 修复：如果path已经是完整URL，不要重复拼接
-                      if(path.startsWith("http")) {
-                          fullUrl = path;
-                      } else {
-                          fullUrl += path;
-                      }
                       URL url = new URL(fullUrl);
                       conn = (HttpURLConnection) url.openConnection();
                       conn.setRequestMethod("POST");
                       conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                      conn.setConnectTimeout(5000); 
-                      conn.setReadTimeout(10000); 
+                      conn.setConnectTimeout(8000); 
+                      conn.setReadTimeout(15000); 
                       conn.setDoOutput(true);
                       try(OutputStream os = conn.getOutputStream()) { 
                           os.write(jsonBody.getBytes(StandardCharsets.UTF_8)); 
                       }
-                      InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                      int responseCode = conn.getResponseCode();
+                      InputStream is = responseCode >= 400 ? conn.getErrorStream() : conn.getInputStream();
                       if (is == null) return "{}";
                       try(BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
                           StringBuilder sb = new StringBuilder(); 
@@ -206,17 +191,23 @@ jobs:
               
               private void loginCloud() {
                   new Thread(() -> {
+                      // 🌟 修复：本地Docker和公有云都使用 /irext-server/ 前缀
+                      String loginUrl = targetCloudUrl.endsWith("/") ? 
+                          targetCloudUrl + "irext-server/app/app_login" : 
+                          targetCloudUrl + "/irext-server/app/app_login";
                       String req = "{\"appKey\":\""+APP_KEY+"\",\"appSecret\":\""+APP_SECRET+"\",\"appType\":\"2\"}";
-                      String res = postJSON("irext-server/app/app_login", req);
+                      String res = postJSON(loginUrl, req);
                       try {
-                          JsonObject entity = JsonParser.parseString(res).getAsJsonObject().getAsJsonObject("entity");
-                          apiId = entity.get("id").getAsString(); 
-                          apiToken = entity.get("token").getAsString();
+                          JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
+                          if(obj.has("entity")) {
+                              JsonObject entity = obj.getAsJsonObject("entity");
+                              apiId = entity.get("id").getAsString(); 
+                              apiToken = entity.get("token").getAsString();
+                          }
                       } catch (Exception e) { }
                   }).start();
               }
               
-              // 🌟🌟🌟 移植V2的getKeyId方法体 🌟🌟🌟
               private int getKeyId(int cat, String k) {
                   if ((cat == 2 || cat == 3 || cat == 8) && k.matches("\\d+")) return 14 + Integer.parseInt(k);
                   String[] m = null;
@@ -232,16 +223,17 @@ jobs:
                   return -1;
               }
               
-              // 🌟🌟🌟 修复：移植V2的batchDecodeLocal方法体 - 使用localDecoderUrl(8082) 🌟🌟🌟
+              // 🌟 8082本地解码器 - 独立路径，不带 /irext-server/
               private Map<String, Object> batchDecodeLocal(String indexId, String type, int cat) {
                   String cacheKey = indexId + "_" + type;
                   if(decodeCache.containsKey(cacheKey)) return decodeCache.get(cacheKey);
                   String req = String.format("{\"id\":\"%s\",\"token\":\"%s\",\"indexId\":\"%s\",\"deviceType\":\"%s\",\"categoryId\":%d}",
                       apiId, apiToken, indexId, type, cat);
-                  // 🌟 修复：使用localDecoderUrl，正确拼接URL
-                  String baseUrl = localDecoderUrl.endsWith("/") ? localDecoderUrl : localDecoderUrl + "/";
-                  String fullUrl = baseUrl + "decode/all";
-                  String res = postJSON(fullUrl, req, localDecoderUrl);
+                  // 8082本地解码器使用独立路径 /decode/all
+                  String decodeUrl = localDecoderUrl.endsWith("/") ? 
+                      localDecoderUrl + "decode/all" : 
+                      localDecoderUrl + "/decode/all";
+                  String res = postJSON(decodeUrl, req);
                   try {
                       JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
                       if(obj.has("keys")) {
@@ -254,7 +246,7 @@ jobs:
                   return null;
               }
               
-              // 🌟🌟🌟 移植V2的decodeOnline方法体 - 使用targetCloudUrl(8081) 🌟🌟🌟
+              // 🌟 8081云端解码 - 本地Docker和公有云都使用 /irext-server/operation/decode
               private int[] decodeOnline(String indexId, int cat, String op) {
                   JsonObject s = acStateCache.get(indexId);
                   if(s == null && cat == 1) {
@@ -264,6 +256,7 @@ jobs:
                       s.addProperty("acTemp", 10); 
                       s.addProperty("acWindSpeed", 0); 
                       s.addProperty("acWindDir", 0);
+                      s.addProperty("changeWindDir", 0);
                       acStateCache.put(indexId, s);
                   }
                   JsonObject req = new JsonObject();
@@ -285,21 +278,23 @@ jobs:
                       if(kid == -1) return null;
                       req.addProperty("keyCode", kid);
                   }
-                  // 🌟 使用targetCloudUrl
-                  String baseUrl = targetCloudUrl.endsWith("/") ? targetCloudUrl : targetCloudUrl + "/";
-                  String fullUrl = baseUrl + "irext-server/operation/decode";
-                  String res = postJSON(fullUrl, req.toString(), targetCloudUrl);
+                  // 🌟 修复：本地Docker和公有云都使用 /irext-server/operation/decode
+                  String decodeUrl = targetCloudUrl.endsWith("/") ? 
+                      targetCloudUrl + "irext-server/operation/decode" : 
+                      targetCloudUrl + "/irext-server/operation/decode";
+                  String res = postJSON(decodeUrl, req.toString());
                   try {
-                      JsonArray arr = JsonParser.parseString(res).getAsJsonObject().getAsJsonArray("entity");
-                      int[] t = new int[arr.size()]; 
-                      for(int i=0; i<arr.size(); i++) t[i] = arr.get(i).getAsInt();
-                      return t;
-                  } catch(Exception e) { 
-                      return null; 
-                  }
+                      JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
+                      if(obj.has("entity")) {
+                          JsonArray arr = obj.getAsJsonArray("entity");
+                          int[] t = new int[arr.size()]; 
+                          for(int i=0; i<arr.size(); i++) t[i] = arr.get(i).getAsInt();
+                          return t;
+                      }
+                  } catch(Exception e) { }
+                  return null;
               }
               
-              // 🌟 添加原始码记录方法
               private void logRawCode(String deviceName, String keyName, int[] timings, String source) {
                   Map<String, Object> log = new HashMap<>();
                   log.put("time", new Date().toLocaleString());
@@ -326,6 +321,7 @@ jobs:
                               status.addProperty("ir_available", ir != null && ir.hasIrEmitter());
                               status.addProperty("cloud_url", targetCloudUrl);
                               status.addProperty("local_decoder_url", localDecoderUrl);
+                              status.addProperty("api_id", apiId.isEmpty() ? "未登录" : "已登录");
                               return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", status.toString());
                           }
                           if ("/api/list".equals(uri)) {
@@ -341,16 +337,19 @@ jobs:
                               return newFixedLengthResponse("{\"ok\":true}");
                           }
                           if ("/api/delete".equals(uri)) {
-                              JsonArray list = JsonParser.parseString(db.getString("devs", "[]")).getAsJsonArray();
-                              JsonArray newList = new JsonArray();
-                              int idx = Integer.parseInt(p.get("i"));
-                              for(int i=0; i<list.size(); i++) {
-                                  if(i != idx) newList.add(list.get(i));
+                              String idxStr = p.get("i");
+                              if(idxStr != null) {
+                                  int idx = Integer.parseInt(idxStr);
+                                  JsonArray list = JsonParser.parseString(db.getString("devs", "[]")).getAsJsonArray();
+                                  JsonArray newList = new JsonArray();
+                                  for(int i=0; i<list.size(); i++) {
+                                      if(i != idx) newList.add(list.get(i));
+                                  }
+                                  db.edit().putString("devs", newList.toString()).commit();
+                                  return newFixedLengthResponse("{\"ok\":true}");
                               }
-                              db.edit().putString("devs", newList.toString()).commit();
-                              return newFixedLengthResponse("{\"ok\":true}");
+                              return newFixedLengthResponse("{\"ok\":false,\"error\":\"no_index\"}");
                           }
-                          // 🌟 电视预下载
                           if ("/api/batch_decode".equals(uri)) {
                               String indexId = p.get("indexId");
                               String type = p.getOrDefault("type", "tv");
@@ -358,11 +357,13 @@ jobs:
                               Map<String, Object> res = batchDecodeLocal(indexId, type, cat);
                               return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", "{\"ok\":" + (res != null) + "}");
                           }
-                          // 🌟 获取原始码日志
                           if ("/api/raw_logs".equals(uri)) {
                               return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", new Gson().toJson(rawCodeLog));
                           }
-                          // 🌟🌟🌟 修复：移植V2的发射逻辑 🌟🌟🌟
+                          if ("/api/raw_logs/clear".equals(uri)) {
+                              rawCodeLog.clear();
+                              return newFixedLengthResponse("{\"ok\":true}");
+                          }
                           if ("/api/tx".equals(uri)) {
                               String id = p.get("id"); 
                               String k = p.get("k"); 
@@ -370,12 +371,11 @@ jobs:
                               int[] pattern = null;
                               String source = "unknown";
                               
-                              // 电视/机顶盒/投影仪(cat=2,3,8)用本地解码(8082)
                               if (cat == 2 || cat == 3 || cat == 8) {
                                   Map<String, Object> cached = decodeCache.get(id + "_tv");
                                   if(cached == null) {
                                       cached = batchDecodeLocal(id, "tv", cat);
-                                      source = "local_decoder";
+                                      source = "local_decoder(8082)";
                                   } else {
                                       source = "local_cache";
                                   }
@@ -388,13 +388,11 @@ jobs:
                                       }
                                   }
                               } else {
-                                  // 空调等用云端解码(8081)
                                   pattern = decodeOnline(id, cat, k);
-                                  source = "cloud_decoder";
+                                  source = "cloud_decoder(8081)";
                               }
                               
                               if(pattern != null) {
-                                  // 🌟 记录原始码
                                   logRawCode(id, k, pattern, source);
                                   if (cfg.getBoolean("force_audio", false) || ir == null || !ir.hasIrEmitter()) {
                                       transmitAudioStereo(pattern);
@@ -405,10 +403,21 @@ jobs:
                               }
                               return newFixedLengthResponse("{\"ok\":false,\"error\":\"decode_failed\"}");
                           }
+                          // 🌟 修复：代理接口 - 本地和云端都使用 /irext-server 前缀
                           if ("/api/proxy".equals(uri)) {
-                              String res = postJSON(p.get("p"), "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}");
-                              JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
-                              return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", obj.has("entity")?obj.get("entity").toString():"[]");
+                              String path = p.get("p");
+                              if(path != null) {
+                                  if(!path.startsWith("/")) path = "/" + path;
+                                  // 统一使用 /irext-server 前缀
+                                  String proxyUrl = targetCloudUrl.endsWith("/") ? 
+                                      targetCloudUrl.substring(0, targetCloudUrl.length()-1) + path : 
+                                      targetCloudUrl + path;
+                                  String body = "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}";
+                                  String res = postJSON(proxyUrl, body);
+                                  JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
+                                  return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", obj.has("entity")?obj.get("entity").toString():"[]");
+                              }
+                              return newFixedLengthResponse("{\"ok\":false}");
                           }
                       } catch(Exception e) { 
                           return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", "{\"error\":\""+e.getMessage()+"\"}"); 
@@ -418,42 +427,65 @@ jobs:
               }
               
               private String getWebInterface() {
-                  return "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>ha红外网关</title><style>body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}.card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}.btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}.btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}.btn-r{background:#ff4d4f;color:#fff;border:none}.btn-y{background:#f59e0b;color:#fff;border:none}.dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}#views>div{display:none}#v_home{display:block}.panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}textarea{width:100%;height:350px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#a9b7c6;padding:10px;border:1px solid #333;border-radius:8px}.log-item{background:#f8f9fa;border-left:4px solid #1890ff;padding:10px;margin-bottom:8px;border-radius:4px;font-size:12px;font-family:monospace}.log-time{color:#666;font-size:11px}.log-source{display:inline-block;background:#1890ff;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:8px}</style></head><body>" +
-                      "<div id='views'><div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
+                  return "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'><title>ha红外网关</title><style>"+
+                      "body{font-family:sans-serif;background:#f0f2f5;padding:12px;margin:0 auto;max-width:500px}"+
+                      ".card{background:#fff;border-radius:15px;padding:20px;box-shadow:0 4px 10px rgba(0,0,0,.08);margin-bottom:15px}"+
+                      "h3{margin:0 0 15px;color:#1890ff;display:flex;justify-content:space-between;align-items:center}"+
+                      ".btn-back{font-size:12px;background:#f5f5f5;padding:4px 10px;border-radius:6px;border:1px solid #ddd;cursor:pointer}"+
+                      ".btn{display:block;width:100%;padding:14px 0;border:none;border-radius:12px;font-size:14px;font-weight:bold;margin-top:10px;cursor:pointer;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}"+
+                      ".btn-p{background:#1890ff;color:#fff;border:none}.btn-g{background:#52c41a;color:#fff;border:none}"+
+                      ".btn-r{background:#ff4d4f;color:#fff;border:none}.btn-y{background:#f59e0b;color:#fff;border:none}"+
+                      ".dev-card{background:#fff;border:1px solid #eee;padding:18px;border-radius:15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}"+
+                      "select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;font-size:15px}"+
+                      "#views>div{display:none}#v_home{display:block}"+
+                      ".panel{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}"+
+                      ".num-grid{grid-template-columns:repeat(5,1fr);font-size:11px;margin-top:15px;border-top:1px dashed #eee;padding-top:15px}"+
+                      "textarea{width:100%;height:350px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#a9b7c6;padding:10px;border:1px solid #333;border-radius:8px}"+
+                      ".log-full{background:#f8f9fa;border:1px solid #e9ecef;padding:15px;margin-bottom:10px;border-radius:8px;font-family:monospace;font-size:12px;word-break:break-all}"+
+                      ".log-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #dee2e6}"+
+                      ".log-time{color:#666;font-size:11px}"+
+                      ".log-source{background:#1890ff;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px}"+
+                      ".log-device{font-weight:bold;color:#333;margin-bottom:5px}"+
+                      ".log-key{color:#1890ff;font-weight:bold}"+
+                      ".log-timings{background:#fff;padding:10px;border-radius:4px;margin-top:8px;max-height:200px;overflow-y:auto;border:1px solid #e9ecef;color:#495057;line-height:1.5}"+
+                      "</style></head><body>" +
+                      "<div id='views'>"+
+                      "<div id='v_home'><h3>🏠 我的设备 <button class='btn-g' style='width:auto;padding:6px 15px' onclick='goAdd()'>+ 添加</button></h3><div id='dev_list'></div></div>" +
                       "<div id='v_add'><div class='card'><h3><span onclick='goHome()' class='btn-back'>← 返回</span> 1. 选类型品牌</h3><select id='sc' onchange='lb()'></select><select id='sb' onchange='startMatch()'></select></div></div>" +
                       "<div id='v_match'><div class='card'><h3><span onclick='view(\"v_add\")' class='btn-back'>← 返回</span> 匹配中</h3><div style='text-align:center;margin:15px 0'>方案 <b id='midx' style='color:#1890ff;font-size:24px'>1</b> / <span id='mtotal'>0</span></div><p id='bg_prog' style='font-size:12px;color:#999;text-align:center'></p><button class='btn btn-p' style='height:80px' onclick='testPwr()'>📡 发送电源测试</button><div class='panel' style='grid-template-columns:1fr 1fr'><button class='btn' onclick='next()'>❌ 无反应</button><button class='btn btn-g' onclick='preSave()'>✅ 有反应</button></div></div></div>" +
                       "<div id='v_save'><div class='card'><h3><span onclick='view(\"v_match\")' class='btn-back'>← 返回</span> 3. 取名保存</h3><input id='d_name'><button class='btn btn-g' onclick='doSave()'>确认保存</button></div></div>" +
-                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-back' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-family:monospace'></div><div class='panel' id='btns'></div><div class='panel num-grid' id='num_btns' style='display:none'></div><button class='btn btn-y' style='margin-top:20px' onclick='showRaw()'>📟 查看原始码</button><button class='btn' style='background:#fdf2f2;color:#ef4444;border-color:#fecaca;margin-top:10px' onclick='showHA()'>🛠️ HA 配置代码</button><button class='btn btn-r' style='margin-top:10px;opacity:0.3' onclick='delDev()'>删除设备</button></div></div>" +
+                      "<div id='v_ctrl'><div class='card'><h3><span id='c_title'></span> <button class='btn-back' onclick='goHome()'>关闭</button></h3><div id='ac_st' style='text-align:center;margin-bottom:15px;color:#666;font-family:monospace'></div><div class='panel' id='btns'></div><div class='panel num-grid' id='num_btns' style='display:none'></div><button class='btn btn-y' style='margin-top:20px' onclick='showRaw()'>📟 查看原始码</button><button class='btn' style='background:#fdf2f2;color:#ef4444;border-color:#fecaca;margin-top:10px' onclick='showHA()'>🛠️ HA 配置代码</button><button class='btn btn-r' style='margin-top:10px' onclick='delDev()'>删除设备</button></div></div>" +
                       "<div id='v_ha'><div class='card'><h3>🛠️ HA YAML <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><textarea id='ha_code' readonly onclick='this.select()'></textarea></div></div>" +
-                      "<div id='v_raw'><div class='card'><h3>📟 原始红外码 <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><div id='raw_list' style='max-height:500px;overflow-y:auto'></div><button class='btn' onclick='clearRaw()' style='margin-top:10px'>清空记录</button></div></div></div><script>" +
-                      "const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'},'投影仪':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'风扇':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'风力+',7:'风力-',8:'摇头',9:'风力',10:'风类',11:'返回'},'音响':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'播放',11:'暂停',12:'上一曲',13:'下一曲'},'盒子':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'主页',11:'菜单'}};const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1,tvDec={};" +
+                      "<div id='v_raw'><div class='card'><h3>📟 原始红外码日志 <span onclick='goCtrl()' class='btn-back'>← 返回</span></h3><div id='raw_list'></div><button class='btn' onclick='clearRaw()' style='margin-top:15px'>🗑️ 清空所有记录</button></div></div>"+
+                      "</div><script>" +
+                      "const kmaps={'空调':{0:'电源',1:'模式',2:'温度+',3:'温度-',9:'风力',10:'扫风',11:'固定风'},'电视机':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'机顶盒':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'上一页',13:'下一页'},'投影仪':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'信号源',11:'菜单',12:'主页',13:'设置'},'风扇':{0:'电源',1:'上',2:'下',3:'左',4:'右',5:'确认',6:'风力+',7:'风力-',8:'摇头',9:'风力',10:'风类',11:'返回'},'音响':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'播放',11:'暂停',12:'上一曲',13:'下一曲'},'盒子':{0:'电源',1:'静音',2:'上',3:'下',4:'左',5:'右',6:'确认',7:'音量+',8:'音量-',9:'返回',10:'主页',11:'菜单'}};"+
+                      "const $=i=>document.getElementById(i);let cs=[],bs=[],is=[],curr=0,ac={p:0,m:0,t:8},devs=[],curDev=null,curIdx=-1,tvDec={};" +
                       "function view(id){document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$(id).style.display='block'}" +
-                      "function loadDevs(){fetch('/api/list?t='+Date.now()).then(r=>r.json()).then(d=>{devs=d;let h='';d.forEach((x,i)=>{h+=`<div class='dev-card' onclick='openDev(${i})'><div><b>${x.name}</b><br><small>${x.brand} | ${x.cate}</small></div><b>&gt;</b></div>`});$('dev_list').innerHTML=h||'<p style=\"text-align:center;padding:40px;color:#999\">还没有设备</p>'})}" +
-                      "function goHome(){loadDevs();view('v_home');if(window.Android)Android.refresh()}" +
-                      "function goAdd(){view('v_add');fetch('/api/proxy?p=/irext-server/indexing/list_categories&b=\"from\":\"0\",\"count\":\"100\"').then(r=>r.json()).then(d=>{cs=d;$('sc').innerHTML='<option>选择类型</option>'+d.map((c,i)=>'<option value='+i+'>'+(c.name_cn||c.name)+'</option>')})}" +
-                      "function lb(){fetch('/api/proxy?p=/irext-server/indexing/list_brands&b=\"categoryId\":\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{bs=d;$('sb').innerHTML='<option>选择品牌</option>'+d.map((b,i)=>'<option value='+i+'>'+(b.name_cn||b.name)+'</option>')})}" +
-                      "function startMatch(){fetch('/api/proxy?p=/irext-server/indexing/list_indexes&b=\"categoryId\":\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\",\"brandId\":\"'+(bs[$('sb').value].id||bs[$('sb').value].brandId)+'\",\"cityCode\":\"\",\"from\":\"0\",\"count\":\"500\"').then(r=>r.json()).then(d=>{is=d;curr=0;tvDec={};view('v_match');$('midx').innerText=1;$('mtotal').innerText=is.length;let c=cs[$('sc').value];if((c.name_cn||c.name).includes('电视')||(c.name_cn||c.name).includes('机顶盒')||(c.name_cn||c.name).includes('投影')||(c.name_cn||c.name).includes('盒子'))bgLoop()})}" +
+                      "function loadDevs(){fetch('/api/list?t='+Date.now()).then(r=>r.json()).then(d=>{devs=d;let h='';d.forEach((x,i)=>{h+=`<div class='dev-card' onclick='openDev(${i})'><div><b>${x.name}</b><br><small>${x.brand} | ${x.cate}</small></div><b>&gt;</b></div>`});$('dev_list').innerHTML=h||'<p style=\\\"text-align:center;padding:40px;color:#999\\\">还没有设备<br>点击右上角添加</p>'})}" +
+                      "function goHome(){loadDevs();view('v_home');}" +
+                      "function goAdd(){view('v_add');fetch('/api/proxy?p=/irext-server/indexing/list_categories&b=\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"100\\\"').then(r=>r.json()).then(d=>{cs=d;$('sc').innerHTML='<option>选择类型</option>'+d.map((c,i)=>'<option value='+i+'>'+(c.name_cn||c.name)+'</option>')})}" +
+                      "function lb(){fetch('/api/proxy?p=/irext-server/indexing/list_brands&b=\\\"categoryId\\\":\\\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"500\\\"').then(r=>r.json()).then(d=>{bs=d;$('sb').innerHTML='<option>选择品牌</option>'+d.map((b,i)=>'<option value='+i+'>'+(b.name_cn||b.name)+'</option>')})}" +
+                      "function startMatch(){fetch('/api/proxy?p=/irext-server/indexing/list_indexes&b=\\\"categoryId\\\":\\\"'+(cs[$('sc').value].id||cs[$('sc').value].categoryId)+'\\\",\\\"brandId\\\":\\\"'+(bs[$('sb').value].id||bs[$('sb').value].brandId)+'\\\",\\\"cityCode\\\":\\\"\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"500\\\"').then(r=>r.json()).then(d=>{is=d;curr=0;tvDec={};view('v_match');$('midx').innerText=1;$('mtotal').innerText=is.length;let c=cs[$('sc').value];if((c.name_cn||c.name).includes('电视')||(c.name_cn||c.name).includes('机顶盒')||(c.name_cn||c.name).includes('投影')||(c.name_cn||c.name).includes('盒子'))bgLoop()})}" +
                       "async function bgLoop(){for(let i=0;i<is.length;i++){if(!tvDec[i]){await fetch('/api/batch_decode?indexId='+is[i].id+'&type=tv&cat=2');tvDec[i]=true;if($('bg_prog'))$('bg_prog').innerText=`后台解码: ${Object.keys(tvDec).length}/${is.length}`;}}}" +
                       "function testPwr(){let c=cs[$('sc').value];let k=(c.name_cn||c.name)=='空调'?0:'电源';fire(k,is[curr],c)}" +
                       "function next(){if(curr<is.length-1){curr++;$('midx').innerText=curr+1;testPwr()}else{alert('试完了')}}" +
                       "function preSave(){view('v_save');let c=$('sc').value,b=bs[$('sb').value];$('d_name').value=(b.name_cn||b.name||'')+' '+(c.name_cn||c.name||'')}" +
                       "function doSave(){let d={name:$('d_name').value,cate:cs[$('sc').value].name_cn||cs[$('sc').value].name,brand:bs[$('sb').value].name_cn||bs[$('sb').value].name,idx:is[curr],cid:cs[$('sc').value].id||cs[$('sc').value].categoryId};fetch('/api/save',{method:'POST',body:JSON.stringify(d)}).then(()=>{goHome()})}" +
                       "function openDev(i){curDev=devs[i];curIdx=i;view('v_ctrl');$('c_title').innerText=curDev.name;renderPanel()}" +
-                      "function delDev(){if(confirm('删除?'))fetch('/api/delete?i='+curIdx).then(goHome)}" +
+                      "function delDev(){if(confirm('确定要删除 '+curDev.name+' 吗？')){fetch('/api/delete?i='+curIdx).then(r=>r.json()).then(d=>{if(d.ok){alert('删除成功');goHome()}else{alert('删除失败')}})}}" +
                       "function goCtrl(){view('v_ctrl')}" +
-                      "function renderPanel(){let n=curDev.cate,m=kmaps[n]||kmaps['电视机'];let h='';Object.keys(m).forEach(k=>{h+=`<button onclick='fireTx(\"${m[k]}\")' class='btn'>${m[k]}</button>`});$('btns').innerHTML=h;if(n=='电视机'||n=='机顶盒'||n=='投影仪'||n=='盒子'){let nh='';for(let i=0;i<=9;i++){nh+=`<button class='btn' onclick='fireTx(\"${i}\")'>${i}</button>`}$('num_btns').innerHTML=nh;$('num_btns').style.display='grid'}else{$('num_btns').style.display='none'}if(n=='空调'){updateAcUI();$('ac_st').style.display='block'}else{$('ac_st').style.display='none'}}" +
+                      "function renderPanel(){let n=curDev.cate,m=kmaps[n]||kmaps['电视机'];let h='';Object.keys(m).forEach(k=>{h+=`<button onclick='fireTx(\\\"${m[k]}\\\")' class='btn'>${m[k]}</button>`});$('btns').innerHTML=h;if(n=='电视机'||n=='机顶盒'||n=='投影仪'||n=='盒子'){let nh='';for(let i=0;i<=9;i++){nh+=`<button class='btn' onclick='fireTx(\\\"${i}\\\")'>${i}</button>`}$('num_btns').innerHTML=nh;$('num_btns').style.display='grid'}else{$('num_btns').style.display='none'}if(n=='空调'){updateAcUI();$('ac_st').style.display='block'}else{$('ac_st').style.display='none'}}" +
                       "function updateAcUI(){$('ac_st').innerText=(ac.p?'ON':'OFF')+' | '+['冷','热','自动','风','除湿'][ac.m]+' | '+(ac.t+16)+'°C'}" +
-                      "function showHA(){view('v_ha');let u=location.origin,id=curDev.idx.id||curDev.idx.indexId,sn='ir_'+id;let code='';if(curDev.cate.includes('空调')){code=`# 新版HA原生空调配置\ninput_select:\n  ${sn}_mode:\n    options: ['off','cool','heat','auto','fan_only']\ninput_number:\n  ${sn}_temp:\n    min: 16\n    max: 30\n    step: 1\nrest_command:\n  ${sn}_set:\n    url: \"${u}/api/tx?id=${id}&cat=1&k={{k}}&p={{p}}&m={{m}}&t={{t}}\"\n\ntemplate:\n  - climate:\n      name: \"${curDev.name}\"\n      unique_id: ${sn}_climate\n      hvac_modes: ['off','cool','heat','auto','fan_only']\n      min_temp: 16\n      max_temp: 30\n      target_temperature_step: 1\n      hvac_mode_template: \"{{ states('input_select.${sn}_mode') }}\"\n      target_temperature_template: \"{{ states('input_number.${sn}_temp') }}\"\n      set_hvac_mode:\n        - service: input_select.select_option\n          target: { entity_id: input_select.${sn}_mode }\n          data: { option: \"{{ hvac_mode }}\" }\n        - service: rest_command.${sn}_set\n          data:\n            k: '电源'\n            p: \"{{ 0 if hvac_mode == 'off' else 1 }}\"\n            m: \"{{ 0 if hvac_mode == 'cool' else (1 if hvac_mode == 'heat' else 2) }}\"\n            t: 8\n      set_temperature:\n        - service: input_number.set_value\n          target: { entity_id: input_number.${sn}_temp }\n          data: { value: \"{{ temperature }}\" }\n        - service: rest_command.${sn}_set\n          data:\n            k: '温度+'\n            p: 1\n            m: 0\n            t: \"{{ (temperature - 16)|int }}\"`;}else{code=`# 通用设备配置\nrest_command:\n  ${sn}_cmd: { url: \"${u}/api/tx?id=${id}&cat=${curDev.cid}&k={{k}}\" }\n\nswitch:\n  - platform: template\n    switches:\n      ${sn}:\n        friendly_name: \"${curDev.name}\"\n        turn_on: { service: rest_command.${sn}_cmd, data: {k: '电源'} }\n        turn_off: { service: rest_command.${sn}_cmd, data: {k: '电源'} }`}$('ha_code').value=code;}" +
-                      // 🌟 新增：原始码查看功能
-                      "function showRaw(){view('v_raw');fetch('/api/raw_logs').then(r=>r.json()).then(logs=>{let h='';logs.forEach((log,i)=>{let timings=log.timings.slice(0,20).join(',');if(log.timings.length>20)timings+='...';h+=`<div class='log-item'><div class='log-time'>${log.time} <span class='log-source'>${log.source}</span></div><div><b>${log.device}</b> - ${log.key}</div><div style='color:#666;margin-top:4px'>载波:${log.carrier}Hz | 时长:[${timings}]</div></div>`});$('raw_list').innerHTML=h||'<p style=\"text-align:center;color:#999\">暂无记录</p>'})}" +
-                      "function clearRaw(){fetch('/api/raw_logs/clear').then(()=>showRaw())}" +
+                      "function showHA(){view('v_ha');let u=location.origin,id=curDev.idx.id||curDev.idx.indexId,sn='ir_'+id;let code='';if(curDev.cate.includes('空调')){code='input_select:\\n  '+sn+'_mode:\\n    options: [\\'off\\',\\'cool\\',\\'heat\\',\\'auto\\',\\'fan_only\\']\\ninput_number:\\n  '+sn+'_temp:\\n    min: 16\\n    max: 30\\n    step: 1\\nrest_command:\\n  '+sn+'_set:\\n    url: \"'+u+'/api/tx?id='+id+'&cat=1&k={{k}}&p={{p}}&m={{m}}&t={{t}}\"\\ntemplate:\\n  - climate:\\n      name: \"'+curDev.name+'\"\\n      unique_id: '+sn+'_climate\\n      hvac_modes: [\\'off\\',\\'cool\\',\\'heat\\',\\'auto\\',\\'fan_only\\']\\n      min_temp: 16\\n      max_temp: 30\\n      target_temperature_step: 1';}else{code='rest_command:\\n  '+sn+'_cmd: { url: \"'+u+'/api/tx?id='+id+'&cat='+curDev.cid+'&k={{k}}\" }\\nswitch:\\n  - platform: template\\n    switches:\\n      '+sn+':\\n        friendly_name: \"'+curDev.name+'\"\\n        turn_on: { service: rest_command.'+sn+'_cmd, data: {k: \\'电源\\'} }\\n        turn_off: { service: rest_command.'+sn+'_cmd, data: {k: \\'电源\\'} }';}$('ha_code').value=code;}" +
+                      "function showRaw(){view('v_raw');fetch('/api/raw_logs').then(r=>r.json()).then(logs=>{let h='';if(logs.length===0){h='<p style=\\\"text-align:center;color:#999;padding:40px\\\">暂无记录<br>请先操作设备发射红外码</p>'}else{logs.forEach(log=>{let timingsStr=log.timings.join(', ');h+=`<div class='log-full'><div class='log-header'><span class='log-time'>${log.time}</span><span class='log-source'>${log.source}</span></div><div class='log-device'>${log.device} <span class='log-key'>${log.key}</span></div><div style='color:#666;margin-top:5px'>载波频率: ${log.carrier}Hz | 时长数量: ${log.timings.length}个</div><div class='log-timings'>${timingsStr}</div></div>`;});}$('raw_list').innerHTML=h;});}" +
+                      "function clearRaw(){if(confirm('确定清空所有记录？')){fetch('/api/raw_logs/clear').then(()=>showRaw())}}" +
                       "function fireTx(k){fire(k, curDev.idx, curDev.cid)}" +
-                      "function fire(k, idx, cat){let cid=typeof cat==='object'?cat.id||cat.categoryId:parseInt(cat);if(cid==1){if(k=='电源')ac.p=1-ac.p;if(k=='模式')ac.m=(ac.m+1)%5;if(k=='温度+')ac.t=Math.min(14,ac.t+1);if(k=='温度-')ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch(`/api/tx?id=${idx.id||idx.indexId}&cat=${cid}&k=${k}`).then(r=>r.text())}\n goHome();</script></body></html>";
+                      "function fire(k, idx, cat){let cid=typeof cat==='object'?cat.id||cat.categoryId:parseInt(cat);if(cid==1){if(k=='电源')ac.p=1-ac.p;if(k=='模式')ac.m=(ac.m+1)%5;if(k=='温度+')ac.t=Math.min(14,ac.t+1);if(k=='温度-')ac.t=Math.max(0,ac.t-1);updateAcUI()}fetch(`/api/tx?id=${idx.id||idx.indexId}&cat=${cid}&k=${encodeURIComponent(k)}`).then(r=>r.text())}\n" +
+                      "goHome();</script></body></html>";
               }
               @Override public IBinder onBind(Intent intent) { return null; }
           }
           EOF
-
       - name: 4. 编写主控台 UI (V3原版)
         run: |
           cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
