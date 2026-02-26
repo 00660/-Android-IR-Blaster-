@@ -488,13 +488,13 @@ jobs:
               @Override public IBinder onBind(Intent intent) { return null; }
           }
           EOF
-      - name: 4. 编写主控台 UI (V3原版)
+      - name: 4. 编写主控台 UI (APP内显示设备+直接操作)
         run: |
-          cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
+          cat <<'EOF' > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
           import android.app.Activity;
+          import android.app.AlertDialog;
           import android.content.*;
-          import android.content.pm.PackageManager;
           import android.graphics.Color;
           import android.net.Uri;
           import android.os.Build;
@@ -508,9 +508,11 @@ jobs:
           import java.net.*;
           import java.util.*;
           import java.io.*;
+          
           public class MainActivity extends Activity {
               private SharedPreferences db, cfg;
-              private LinearLayout listArea;
+              private LinearLayout deviceListContainer;
+              private ScrollView deviceListScroll;
               private WebView webView;
               private EditText ipInput, decoderInput;
               private RadioGroup cloudGroup;
@@ -518,6 +520,18 @@ jobs:
               private Button btnBattery;
               private boolean isWeb = false;
               private BroadcastReceiver statusReceiver;
+              private JsonArray devices = new JsonArray();
+              private int selectedDeviceIndex = -1;
+              
+              private final String[][] KEY_MAPS = {
+                  {"电源","模式","温度+","温度-","风力","扫风","固定风"},
+                  {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","主页","设置"},
+                  {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","上一页","下一页"},
+                  null, null, null, null,
+                  {"电源","上","下","左","右","确认","风力+","风力-","摇头","风力","风类","返回"},
+                  null,
+                  {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","主页","设置"}
+              };
               
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
@@ -536,6 +550,7 @@ jobs:
                   
                   FrameLayout root = new FrameLayout(this);
                   root.setBackgroundColor(Color.parseColor("#F1F5F9"));
+                  
                   LinearLayout main = new LinearLayout(this);
                   main.setOrientation(LinearLayout.VERTICAL);
                   main.setPadding(40, 40, 40, 40);
@@ -543,6 +558,7 @@ jobs:
                   TextView title = new TextView(this); 
                   title.setText("📡 ha红外网关 Pro V3"); 
                   title.setTextSize(24);
+                  title.setTextColor(Color.parseColor("#1e293b"));
                   main.addView(title);
                   
                   statusText = new TextView(this);
@@ -554,78 +570,85 @@ jobs:
                   TextView myIp = new TextView(this);
                   myIp.setText("访问地址: http://" + getLocalIp() + ":8080");
                   myIp.setTextColor(Color.parseColor("#2563EB")); 
+                  myIp.setPadding(0, 10, 0, 10);
                   main.addView(myIp);
                   
-                  btnBattery = new Button(this);
-                  btnBattery.setText("🔋 申请电池优化白名单");
-                  btnBattery.setBackgroundColor(Color.parseColor("#f59e0b"));
-                  btnBattery.setTextColor(Color.WHITE);
-                  btnBattery.setOnClickListener(v -> requestBatteryWhitelist());
-                  main.addView(btnBattery);
+                  LinearLayout settingsPanel = new LinearLayout(this);
+                  settingsPanel.setOrientation(LinearLayout.VERTICAL);
+                  settingsPanel.setBackgroundColor(Color.parseColor("#ffffff"));
+                  settingsPanel.setPadding(30, 30, 30, 30);
                   
-                  TextView cloudLabel = new TextView(this); 
-                  cloudLabel.setText("\n☁️ 选择云端解码服务器 (8081):");
-                  main.addView(cloudLabel);
+                  TextView settingsTitle = new TextView(this);
+                  settingsTitle.setText("⚙️ 服务器设置");
+                  settingsTitle.setTextSize(18);
+                  settingsTitle.setTextColor(Color.parseColor("#334155"));
+                  settingsPanel.addView(settingsTitle);
                   
                   cloudGroup = new RadioGroup(this);
                   cloudGroup.setOrientation(LinearLayout.HORIZONTAL);
                   RadioButton rbPublic = new RadioButton(this); 
-                  rbPublic.setText("公有云 (官方)");
+                  rbPublic.setText("公有云");
                   RadioButton rbPrivate = new RadioButton(this); 
-                  rbPrivate.setText("私有云 (Docker)");
+                  rbPrivate.setText("私有云");
                   cloudGroup.addView(rbPublic); 
                   cloudGroup.addView(rbPrivate);
-                  main.addView(cloudGroup);
+                  settingsPanel.addView(cloudGroup);
                   
                   ipInput = new EditText(this); 
-                  ipInput.setHint("Docker IP:8081");
+                  ipInput.setHint("Docker IP:8081 (如: http://192.168.1.100:8081)");
                   ipInput.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081"));
-                  main.addView(ipInput);
+                  settingsPanel.addView(ipInput);
                   
                   TextView localLabel = new TextView(this); 
-                  localLabel.setText("\n🖥️ 电视本地解码服务 (8082):");
-                  main.addView(localLabel);
+                  localLabel.setText("🖥️ 本地解码器 (8082):");
+                  localLabel.setPadding(0, 20, 0, 10);
+                  settingsPanel.addView(localLabel);
                   
                   decoderInput = new EditText(this);
                   decoderInput.setHint("本地解码器地址");
                   decoderInput.setText(cfg.getString("local_decoder", "http://192.168.1.100:8082"));
-                  main.addView(decoderInput);
+                  settingsPanel.addView(decoderInput);
                   
                   boolean isPublic = cfg.getBoolean("is_public_cloud", false);
                   rbPublic.setChecked(isPublic); 
                   rbPrivate.setChecked(!isPublic);
                   ipInput.setVisibility(isPublic ? View.GONE : View.VISIBLE);
                   cloudGroup.setOnCheckedChangeListener((group, checkedId) -> {
-                      if(checkedId == rbPublic.getId()) ipInput.setVisibility(View.GONE);
-                      else ipInput.setVisibility(View.VISIBLE);
+                      ipInput.setVisibility(checkedId == rbPublic.getId() ? View.GONE : View.VISIBLE);
                   });
                   
                   Switch swAuto = new Switch(this); 
                   swAuto.setText("允许开机自启");
                   swAuto.setChecked(cfg.getBoolean("auto_start", true)); 
-                  main.addView(swAuto);
+                  settingsPanel.addView(swAuto);
                   
                   Switch swAudio = new Switch(this); 
-                  swAudio.setText("开启外接耳机孔红外发射");
+                  swAudio.setText("强制使用音频发射(耳机孔红外)");
                   swAudio.setChecked(cfg.getBoolean("force_audio", false)); 
-                  main.addView(swAudio);
+                  settingsPanel.addView(swAudio);
+                  
+                  LinearLayout btnRow = new LinearLayout(this);
+                  btnRow.setOrientation(LinearLayout.HORIZONTAL);
                   
                   Button start = new Button(this); 
-                  start.setText("🚀 保存并启动服务");
+                  start.setText("🚀 启动服务");
                   start.setBackgroundColor(Color.parseColor("#1890ff")); 
                   start.setTextColor(Color.WHITE);
+                  start.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
                   start.setOnClickListener(v -> {
                       boolean usePublic = rbPublic.isChecked();
-                      cfg.edit().putString("docker_ip", ipInput.getText().toString())
+                      cfg.edit()
+                         .putString("docker_ip", ipInput.getText().toString())
                          .putString("local_decoder", decoderInput.getText().toString())
                          .putBoolean("is_public_cloud", usePublic)
                          .putBoolean("auto_start", swAuto.isChecked())
-                         .putBoolean("force_audio", swAudio.isChecked()).apply();
+                         .putBoolean("force_audio", swAudio.isChecked())
+                         .apply();
                          
                       Intent i = new Intent(this, IRService.class);
-                      i.putExtra("CLOUD_URL", usePublic ? "http://srv.irext.net" : ipInput.getText().toString());
+                      i.putExtra("CLOUD_URL", usePublic ? "https://srv.irext.net" : ipInput.getText().toString());
                       i.putExtra("LOCAL_DECODER_URL", decoderInput.getText().toString());
-                      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                           startForegroundService(i);
                       } else {
                           startService(i);
@@ -633,40 +656,43 @@ jobs:
                       Toast.makeText(this, "服务启动中...", Toast.LENGTH_SHORT).show();
                       checkServiceStatus();
                   });
-                  main.addView(start);
+                  btnRow.addView(start);
                   
                   Button stopBtn = new Button(this);
-                  stopBtn.setText("⏹️ 停止服务");
+                  stopBtn.setText("⏹️ 停止");
                   stopBtn.setBackgroundColor(Color.parseColor("#6b7280"));
                   stopBtn.setTextColor(Color.WHITE);
+                  stopBtn.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
                   stopBtn.setOnClickListener(v -> {
                       stopService(new Intent(this, IRService.class));
                       Toast.makeText(this, "服务已停止", Toast.LENGTH_SHORT).show();
                       checkServiceStatus();
                   });
-                  main.addView(stopBtn);
+                  btnRow.addView(stopBtn);
+                  settingsPanel.addView(btnRow);
                   
-                  Button btnMagisk = new Button(this);
-                  btnMagisk.setText("🔥 授予Root并部署面具底层守护");
-                  btnMagisk.setBackgroundColor(Color.parseColor("#ef4444"));
-                  btnMagisk.setTextColor(Color.WHITE);
-                  btnMagisk.setOnClickListener(v -> deployMagiskModule());
-                  main.addView(btnMagisk);
+                  Button btnWeb = new Button(this);
+                  btnWeb.setText("🌐 打开Web管理面板(添加设备)");
+                  btnWeb.setBackgroundColor(Color.parseColor("#52c41a"));
+                  btnWeb.setTextColor(Color.WHITE);
+                  btnWeb.setOnClickListener(v -> openWeb());
+                  settingsPanel.addView(btnWeb);
                   
-                  Button add = new Button(this); 
-                  add.setText("+ 设备管理面板");
-                  add.setOnClickListener(v -> openWeb());
-                  main.addView(add);
+                  main.addView(settingsPanel);
                   
-                  TextView lt = new TextView(this); 
-                  lt.setText("\n📱 已存设备:");
-                  main.addView(lt);
+                  // 🌟 设备列表区域
+                  TextView devTitle = new TextView(this); 
+                  devTitle.setText("\n📱 已保存的设备 (点击操作)");
+                  devTitle.setTextSize(18);
+                  devTitle.setTextColor(Color.parseColor("#334155"));
+                  devTitle.setPadding(0, 30, 0, 20);
+                  main.addView(devTitle);
                   
-                  ScrollView scView = new ScrollView(this);
-                  listArea = new LinearLayout(this); 
-                  listArea.setOrientation(LinearLayout.VERTICAL);
-                  scView.addView(listArea); 
-                  main.addView(scView);
+                  deviceListScroll = new ScrollView(this);
+                  deviceListContainer = new LinearLayout(this); 
+                  deviceListContainer.setOrientation(LinearLayout.VERTICAL);
+                  deviceListScroll.addView(deviceListContainer); 
+                  main.addView(deviceListScroll);
                   
                   root.addView(main);
                   
@@ -674,16 +700,179 @@ jobs:
                   webView.getSettings().setJavaScriptEnabled(true);
                   webView.getSettings().setDomStorageEnabled(true);
                   webView.setWebViewClient(new WebViewClient());
-                  webView.addJavascriptInterface(new Object() {
-                      @JavascriptInterface 
-                      public void refresh() { runOnUiThread(() -> refreshList()); }
-                  }, "Android");
                   webView.setVisibility(View.GONE);
                   root.addView(webView);
                   
                   setContentView(root);
-                  refreshList();
+                  refreshDeviceList();
                   checkServiceStatus();
+              }
+              
+              // 🌟 关键修复：从 IREXT_DATABASE 读取设备列表
+              private void refreshDeviceList() {
+                  deviceListContainer.removeAllViews();
+                  try {
+                      // 🌟 修复：使用 IREXT_DATABASE 而不是 IREXT_DB
+                      SharedPreferences pref = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
+                      String devsStr = pref.getString("devs", "[]");
+                      devices = JsonParser.parseString(devsStr).getAsJsonArray();
+                      
+                      if(devices.size() == 0) {
+                          TextView empty = new TextView(this);
+                          empty.setText("暂无设备\n请点击上方\"打开Web管理面板\"添加设备");
+                          empty.setTextColor(Color.parseColor("#999"));
+                          empty.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                          empty.setPadding(0, 50, 0, 50);
+                          deviceListContainer.addView(empty);
+                          return;
+                      }
+                      
+                      for(int i=0; i<devices.size(); i++) {
+                          JsonObject dev = devices.get(i).getAsJsonObject();
+                          String name = dev.get("name").getAsString();
+                          String brand = dev.get("brand").getAsString();
+                          String cate = dev.get("cate").getAsString();
+                          
+                          LinearLayout card = new LinearLayout(this);
+                          card.setOrientation(LinearLayout.VERTICAL);
+                          card.setBackgroundColor(Color.WHITE);
+                          card.setPadding(30, 30, 30, 30);
+                          LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                              ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                          lp.setMargins(0, 0, 0, 20);
+                          card.setLayoutParams(lp);
+                          
+                          TextView tvName = new TextView(this);
+                          tvName.setText(name);
+                          tvName.setTextSize(18);
+                          tvName.setTextColor(Color.parseColor("#1e293b"));
+                          tvName.setTypeface(null, android.graphics.Typeface.BOLD);
+                          card.addView(tvName);
+                          
+                          TextView tvInfo = new TextView(this);
+                          tvInfo.setText(brand + " | " + cate);
+                          tvInfo.setTextColor(Color.parseColor("#64748b"));
+                          tvInfo.setPadding(0, 5, 0, 15);
+                          card.addView(tvInfo);
+                          
+                          GridLayout grid = new GridLayout(this);
+                          grid.setColumnCount(3);
+                          
+                          int catId = dev.get("cid").getAsInt();
+                          String[] keys = getKeysForCategory(catId, cate);
+                          
+                          for(String key : keys) {
+                              Button btn = new Button(this);
+                              btn.setText(key);
+                              btn.setTextSize(12);
+                              btn.setPadding(5, 10, 5, 10);
+                              btn.setBackgroundColor(Color.parseColor("#eff6ff"));
+                              btn.setTextColor(Color.parseColor("#1d4ed8"));
+                              
+                              final int idx = i;
+                              final String k = key;
+                              btn.setOnClickListener(v -> sendCommand(idx, k));
+                              
+                              GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
+                              glp.width = 0;
+                              glp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                              glp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+                              glp.setMargins(5, 5, 5, 5);
+                              btn.setLayoutParams(glp);
+                              
+                              grid.addView(btn);
+                          }
+                          
+                          Button btnDel = new Button(this);
+                          btnDel.setText("🗑️ 删除");
+                          btnDel.setTextSize(12);
+                          btnDel.setBackgroundColor(Color.parseColor("#fee2e2"));
+                          btnDel.setTextColor(Color.parseColor("#dc2626"));
+                          btnDel.setOnClickListener(v -> confirmDelete(i, name));
+                          GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
+                          glp.width = 0;
+                          glp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                          glp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+                          glp.setMargins(5, 5, 5, 5);
+                          btnDel.setLayoutParams(glp);
+                          grid.addView(btnDel);
+                          
+                          card.addView(grid);
+                          deviceListContainer.addView(card);
+                      }
+                  } catch(Exception e) {
+                      e.printStackTrace();
+                      TextView error = new TextView(this);
+                      error.setText("加载设备失败: " + e.getMessage());
+                      error.setTextColor(Color.parseColor("#ef4444"));
+                      deviceListContainer.addView(error);
+                  }
+              }
+              
+              private String[] getKeysForCategory(int catId, String cateName) {
+                  if(catId >= 1 && catId <= 8 && KEY_MAPS[catId-1] != null) {
+                      return KEY_MAPS[catId-1];
+                  }
+                  return new String[]{"电源","上","下","左","右","确认","音量+","音量-","返回","菜单"};
+              }
+              
+              private void sendCommand(int deviceIndex, String key) {
+                  try {
+                      JsonObject dev = devices.get(deviceIndex).getAsJsonObject();
+                      JsonObject idx = dev.getAsJsonObject("idx");
+                      String id = idx.get("id").getAsString();
+                      int cid = dev.get("cid").getAsInt();
+                      
+                      new Thread(() -> {
+                          try {
+                              String url = "http://127.0.0.1:8080/api/tx?id=" + id + "&cat=" + cid + "&k=" + URLEncoder.encode(key, "UTF-8");
+                              HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                              conn.setConnectTimeout(5000);
+                              conn.setRequestMethod("GET");
+                              int code = conn.getResponseCode();
+                              runOnUiThread(() -> {
+                                  if(code == 200) {
+                                      Toast.makeText(this, "已发送: " + key, Toast.LENGTH_SHORT).show();
+                                  } else {
+                                      Toast.makeText(this, "发送失败", Toast.LENGTH_SHORT).show();
+                                  }
+                              });
+                          } catch(Exception e) {
+                              runOnUiThread(() -> Toast.makeText(this, "错误: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                          }
+                      }).start();
+                  } catch(Exception e) {
+                      Toast.makeText(this, "错误", Toast.LENGTH_SHORT).show();
+                  }
+              }
+              
+              private void confirmDelete(int index, String name) {
+                  new AlertDialog.Builder(this)
+                      .setTitle("删除设备")
+                      .setMessage("确定要删除 \"" + name + "\" 吗？")
+                      .setPositiveButton("删除", (dialog, which) -> deleteDevice(index))
+                      .setNegativeButton("取消", null)
+                      .show();
+              }
+              
+              private void deleteDevice(int index) {
+                  new Thread(() -> {
+                      try {
+                          String url = "http://127.0.0.1:8080/api/delete?i=" + index;
+                          HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                          conn.setConnectTimeout(5000);
+                          conn.setRequestMethod("GET");
+                          int code = conn.getResponseCode();
+                          if(code == 200) {
+                              runOnUiThread(() -> {
+                                  Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show();
+                                  refreshDeviceList();
+                              });
+                          }
+                      } catch(Exception e) {
+                          runOnUiThread(() -> Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show());
+                      }
+                  }).start();
               }
               
               @Override
@@ -726,36 +915,6 @@ jobs:
                   }).start();
               }
               
-              private void requestBatteryWhitelist() {
-                  if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                      PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-                      if(pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                          Toast.makeText(this, "已在白名单中", Toast.LENGTH_SHORT).show();
-                          return;
-                      }
-                      Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                      intent.setData(Uri.parse("package:" + getPackageName()));
-                      startActivity(intent);
-                  } else {
-                      Toast.makeText(this, "Android 6.0以下无需申请", Toast.LENGTH_SHORT).show();
-                  }
-              }
-              
-              private void deployMagiskModule() {
-                  new Thread(() -> {
-                      try {
-                          Process p = Runtime.getRuntime().exec("su");
-                          DataOutputStream os = new DataOutputStream(p.getOutputStream());
-                          String apkPath = getApplicationInfo().sourceDir;
-                          String script = "MOD=\"/data/adb/modules/irext_daemon\"\nrm -rf $MOD\nmkdir -p $MOD/system/priv-app/IRGateway\ncp \"" + apkPath + "\" $MOD/system/priv-app/IRGateway/IRGateway.apk\necho 'id=irext_daemon\nname=HA红外特权守护\nversion=vMax\nversionCode=99\nauthor=极客\ndescription=免疫一切杀后台。' > $MOD/module.prop\necho '#!/system/bin/sh\nuntil [ \"$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 1; done\nsleep 3\ndumpsys deviceidle whitelist +hap.re00660.re\nam start-foreground-service -n hap.re00660.re/.IRService' > $MOD/service.sh\nchmod 755 $MOD/service.sh\nexit\n";
-                          os.writeBytes(script); os.flush(); p.waitFor();
-                          runOnUiThread(() -> Toast.makeText(this, "部署完成，请重启手机！", Toast.LENGTH_LONG).show());
-                      } catch (Exception e) {
-                          runOnUiThread(() -> Toast.makeText(this, "无 Root 权限！", Toast.LENGTH_SHORT).show());
-                      }
-                  }).start();
-              }
-              
               private void openWeb() {
                   isWeb = true; 
                   webView.setVisibility(View.VISIBLE);
@@ -765,26 +924,23 @@ jobs:
               @Override
               public void onBackPressed() {
                   if(isWeb) { 
-                      isWeb = false; 
-                      webView.setVisibility(View.GONE); 
-                      refreshList(); 
+                      if(webView.canGoBack()) {
+                          webView.goBack();
+                      } else {
+                          isWeb = false; 
+                          webView.setVisibility(View.GONE); 
+                          refreshDeviceList(); 
+                      }
                   } else {
                       super.onBackPressed();
                   }
               }
               
-              private void refreshList() {
-                  listArea.removeAllViews();
-                  try {
-                      JsonArray arr = JsonParser.parseString(db.getString("devs", "[]")).getAsJsonArray();
-                      for (int i = 0; i < arr.size(); i++) {
-                          JsonObject o = arr.get(i).getAsJsonObject();
-                          Button b = new Button(this); 
-                          b.setAllCaps(false);
-                          b.setText(o.get("name").getAsString() + " (" + o.get("brand").getAsString() + ")");
-                          listArea.addView(b);
-                      }
-                  } catch(Exception e) {}
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  refreshDeviceList();
+                  checkServiceStatus();
               }
               
               private String getLocalIp() {
