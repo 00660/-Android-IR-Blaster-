@@ -538,7 +538,10 @@ jobs:
               private boolean isWeb = false;
               private BroadcastReceiver statusReceiver;
               private JsonArray devices = new JsonArray();
-              
+              private int screenWidth;
+              private int basePadding;
+              private int cardPadding;
+              private int smallMargin;
               private final String[][] KEY_MAPS = {
                   {"电源","模式","温度+","温度-","风力","扫风","固定风"},
                   {"电源","静音","上","下","左","右","确认","音量+","音量-","返回","信号源","菜单","主页","设置"},
@@ -556,9 +559,10 @@ jobs:
                       // 🌟 获取屏幕尺寸，计算自适应padding
                   android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
                   getWindowManager().getDefaultDisplay().getMetrics(dm);
-                  int screenWidth = dm.widthPixels;
-                  int basePadding = Math.max(20, screenWidth / 36);  // 小屏20dp，大屏更大
-                  int cardPadding = Math.max(16, screenWidth / 45);   // 卡片内边距
+                  screenWidth = dm.widthPixels;
+                  basePadding = Math.max(20, screenWidth / 36);
+                  cardPadding = Math.max(16, screenWidth / 45);
+                  smallMargin = Math.max(12, screenWidth / 60);
                   statusReceiver = new BroadcastReceiver() {
                       @Override
                       public void onReceive(Context context, Intent intent) {
@@ -785,14 +789,12 @@ jobs:
                           LinearLayout card = new LinearLayout(this);
                           card.setOrientation(LinearLayout.VERTICAL);
                           card.setBackgroundColor(Color.WHITE);
-                         // 🌟 小屏幕适配：使用动态计算的 padding
-                          int cardPadding = Math.max(16, screenWidth / 45);
+                           // 🌟 使用成员变量
                           card.setPadding(cardPadding, cardPadding, cardPadding, cardPadding);
                           LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                               ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                          lp.setMargins(0, 0, 0, Math.max(12, screenWidth / 60));  // 动态margin
+                          lp.setMargins(0, 0, 0, smallMargin);
                           card.setLayoutParams(lp);
-                          
                           TextView tvName = new TextView(this);
                           tvName.setText(name);
                           tvName.setTextSize(18);
