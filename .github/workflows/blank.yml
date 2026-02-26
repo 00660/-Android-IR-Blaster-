@@ -521,7 +521,6 @@ jobs:
               private boolean isWeb = false;
               private BroadcastReceiver statusReceiver;
               private JsonArray devices = new JsonArray();
-              private int selectedDeviceIndex = -1;
               
               private final String[][] KEY_MAPS = {
                   {"电源","模式","温度+","温度-","风力","扫风","固定风"},
@@ -572,6 +571,14 @@ jobs:
                   myIp.setTextColor(Color.parseColor("#2563EB")); 
                   myIp.setPadding(0, 10, 0, 10);
                   main.addView(myIp);
+                  
+                  // 🔋 电池白名单按钮
+                  btnBattery = new Button(this);
+                  btnBattery.setText("🔋 申请电池优化白名单");
+                  btnBattery.setBackgroundColor(Color.parseColor("#f59e0b"));
+                  btnBattery.setTextColor(Color.WHITE);
+                  btnBattery.setOnClickListener(v -> requestBatteryWhitelist());
+                  main.addView(btnBattery);
                   
                   LinearLayout settingsPanel = new LinearLayout(this);
                   settingsPanel.setOrientation(LinearLayout.VERTICAL);
@@ -671,6 +678,14 @@ jobs:
                   btnRow.addView(stopBtn);
                   settingsPanel.addView(btnRow);
                   
+                  // 🔥 Root面具按钮
+                  Button btnMagisk = new Button(this);
+                  btnMagisk.setText("🔥 授予Root并部署面具底层守护");
+                  btnMagisk.setBackgroundColor(Color.parseColor("#ef4444"));
+                  btnMagisk.setTextColor(Color.WHITE);
+                  btnMagisk.setOnClickListener(v -> deployMagiskModule());
+                  settingsPanel.addView(btnMagisk);
+                  
                   Button btnWeb = new Button(this);
                   btnWeb.setText("🌐 打开Web管理面板(添加设备)");
                   btnWeb.setBackgroundColor(Color.parseColor("#52c41a"));
@@ -680,7 +695,7 @@ jobs:
                   
                   main.addView(settingsPanel);
                   
-                  // 🌟 设备列表区域
+                  // 设备列表区域
                   TextView devTitle = new TextView(this); 
                   devTitle.setText("\n📱 已保存的设备 (点击操作)");
                   devTitle.setTextSize(18);
@@ -708,11 +723,9 @@ jobs:
                   checkServiceStatus();
               }
               
-              // 🌟 关键修复：从 IREXT_DATABASE 读取设备列表
               private void refreshDeviceList() {
                   deviceListContainer.removeAllViews();
                   try {
-                      // 🌟 修复：使用 IREXT_DATABASE 而不是 IREXT_DB
                       SharedPreferences pref = getSharedPreferences("IREXT_DATABASE", MODE_PRIVATE);
                       String devsStr = pref.getString("devs", "[]");
                       devices = JsonParser.parseString(devsStr).getAsJsonArray();
@@ -733,7 +746,7 @@ jobs:
                           String brand = dev.get("brand").getAsString();
                           String cate = dev.get("cate").getAsString();
                           
-                          // 🌟 修复：必须是 final 变量才能在 lambda 中使用
+                          // 🌟 修复：final变量用于lambda
                           final int finalIndex = i;
                           final String finalName = name;
                           
@@ -791,7 +804,6 @@ jobs:
                           btnDel.setTextSize(12);
                           btnDel.setBackgroundColor(Color.parseColor("#fee2e2"));
                           btnDel.setTextColor(Color.parseColor("#dc2626"));
-                          // 🌟 修复：使用 final 变量
                           btnDel.setOnClickListener(v -> confirmDelete(finalIndex, finalName));
                           GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
                           glp.width = 0;
@@ -875,6 +887,38 @@ jobs:
                           }
                       } catch(Exception e) {
                           runOnUiThread(() -> Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show());
+                      }
+                  }).start();
+              }
+              
+              // 🔋 电池白名单
+              private void requestBatteryWhitelist() {
+                  if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                      if(pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                          Toast.makeText(this, "已在白名单中", Toast.LENGTH_SHORT).show();
+                          return;
+                      }
+                      Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                      intent.setData(Uri.parse("package:" + getPackageName()));
+                      startActivity(intent);
+                  } else {
+                      Toast.makeText(this, "Android 6.0以下无需申请", Toast.LENGTH_SHORT).show();
+                  }
+              }
+              
+              // 🔥 Root面具部署
+              private void deployMagiskModule() {
+                  new Thread(() -> {
+                      try {
+                          Process p = Runtime.getRuntime().exec("su");
+                          DataOutputStream os = new DataOutputStream(p.getOutputStream());
+                          String apkPath = getApplicationInfo().sourceDir;
+                          String script = "MOD=\"/data/adb/modules/irext_daemon\"\nrm -rf $MOD\nmkdir -p $MOD/system/priv-app/IRGateway\ncp \"" + apkPath + "\" $MOD/system/priv-app/IRGateway/IRGateway.apk\necho 'id=irext_daemon\nname=HA红外特权守护\nversion=vMax\nversionCode=99\nauthor=极客\ndescription=免疫一切杀后台。' > $MOD/module.prop\necho '#!/system/bin/sh\nuntil [ \"$(getprop sys.boot_completed)\" = \"1\" ]; do sleep 1; done\nsleep 3\ndumpsys deviceidle whitelist +hap.re00660.re\nam start-foreground-service -n hap.re00660.re/.IRService' > $MOD/service.sh\nchmod 755 $MOD/service.sh\nexit\n";
+                          os.writeBytes(script); os.flush(); p.waitFor();
+                          runOnUiThread(() -> Toast.makeText(this, "部署完成，请重启手机！", Toast.LENGTH_LONG).show());
+                      } catch (Exception e) {
+                          runOnUiThread(() -> Toast.makeText(this, "无 Root 权限！", Toast.LENGTH_SHORT).show());
                       }
                   }).start();
               }
