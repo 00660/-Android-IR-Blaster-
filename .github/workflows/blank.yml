@@ -562,7 +562,11 @@ jobs:
                           updateStatus(running, port);
                       }
                   };
-                  registerReceiver(statusReceiver, new IntentFilter("hap.re00660.re.SERVICE_STATUS"));
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                      registerReceiver(statusReceiver, new IntentFilter("hap.re00660.re.SERVICE_STATUS"), Context.RECEIVER_NOT_EXPORTED);
+                 } else {
+                     registerReceiver(statusReceiver, new IntentFilter("hap.re00660.re.SERVICE_STATUS"));
+                 }
                   
                   FrameLayout root = new FrameLayout(this);
                   root.setBackgroundColor(Color.parseColor("#F1F5F9"));
