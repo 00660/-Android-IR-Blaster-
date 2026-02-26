@@ -1,4 +1,4 @@
-name: IREXT_ANDROID5_CLOUD_SWITCH_PRO_V3_FIXED
+name: IREXT_ANDROID
 
 on: [push, workflow_dispatch]
 
