@@ -59,7 +59,7 @@ jobs:
               private ConsumerIrManager ir;
               private SharedPreferences db, cfg;
               private String targetCloudUrl = "https://srv.irext.net";
-              private String localDecoderUrl = "http://192.168.1.100:8082";
+              private String localDecoderUrl = "http://192.168.2.157:8082";
               private String apiId = "", apiToken = "";
               private String APP_KEY = "55b1d89fda0658d6f851ee89cad564de";
               private String APP_SECRET = "83dfd86ad59843ce50342ec863a49bf0";
@@ -625,7 +625,7 @@ jobs:
                   
                   ipInput = new EditText(this); 
                   ipInput.setHint("Docker IP:8081 (如: http://192.168.1.100:8081)");
-                  ipInput.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081"));
+                  ipInput.setText(cfg.getString("docker_ip", "http://192.168.2.157:8081"));
                   settingsPanel.addView(ipInput);
                   
                   TextView localLabel = new TextView(this); 
