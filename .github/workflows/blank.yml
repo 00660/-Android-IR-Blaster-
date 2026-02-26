@@ -1,4 +1,4 @@
-name: IREXT_V10_HYBRID_FINAL
+name: IREXT_V11_FULL_FORMAT_RESTORE
 
 on: [push, workflow_dispatch]
 
@@ -6,13 +6,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 初始化
+      - name: 1. 代码初始化
         run: |
           rm -rf *
           mkdir -p app/src/main/java/hap/re00660/re
-          echo "✅ 初始化"
+          echo "✅ 初始化完成"
 
-      - name: 2. 开机广播 (安卓5)
+      - name: 2. 编写开机广播 (恢复完整格式)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/BootReceiver.java
           package hap.re00660.re;
@@ -21,20 +21,23 @@ jobs:
               @Override
               public void onReceive(Context context, Intent intent) {
                   Intent i = new Intent(context, IRService.class);
-                  if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(i);
-                  else context.startService(i);
+                  if (android.os.Build.VERSION.SDK_INT >= 26) {
+                      context.startForegroundService(i);
+                  } else {
+                      context.startService(i);
+                  }
               }
           }
           EOF
 
-      - name: 3. 核心服务 (V7架构 + V2解码逻辑)
+      - name: 3. 编写核心服务 (🌟完整V7排版 + 完整0-13映射 + V2原版解码)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/IRService.java
           package hap.re00660.re;
           import android.app.*;
           import android.content.*;
           import android.hardware.ConsumerIrManager;
-          import android.os.IBinder;
+          import android.os.IBinder; 
           import android.os.PowerManager;
           import fi.iki.elonen.NanoHTTPD;
           import java.io.*;
@@ -55,37 +58,45 @@ jobs:
               private Map<String, Map<String, Object>> decodeCache = new HashMap<>();
 
               @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  if(intent != null) {
+                      dockerUrl = intent.getStringExtra("DOCKER_URL");
+                      localDecoderUrl = intent.getStringExtra("LOCAL_DECODER_URL");
+                      if(dockerUrl != null) login();
+                  }
+                  return START_STICKY;
+              }
+
+              @Override
               public void onCreate() {
                   super.onCreate();
                   db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
+                  
                   dockerUrl = cfg.getString("docker_ip", "http://192.168.1.100:8081");
                   localDecoderUrl = cfg.getString("local_decoder", "http://192.168.1.100:8082");
 
                   try {
-                      Notification.Builder nb = (android.os.Build.VERSION.SDK_INT >= 26) ? new Notification.Builder(this, "IR") : new Notification.Builder(this);
-                      if (android.os.Build.VERSION.SDK_INT >= 26) getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("IR", "IR", NotificationManager.IMPORTANCE_LOW));
-                      startForeground(1, nb.setContentTitle("红外网关V10").setContentText("V7表格+V2解码").setSmallIcon(android.R.drawable.ic_dialog_info).build());
+                      Notification.Builder nb = (android.os.Build.VERSION.SDK_INT >= 26) 
+                          ? new Notification.Builder(this, "IR") 
+                          : new Notification.Builder(this);
+                      if (android.os.Build.VERSION.SDK_INT >= 26) {
+                          getSystemService(NotificationManager.class).createNotificationChannel(
+                              new NotificationChannel("IR", "IR", NotificationManager.IMPORTANCE_LOW));
+                      }
+                      startForeground(1, nb.setContentTitle("红外网关V11").setContentText("完整排版+V2解码").setSmallIcon(android.R.drawable.ic_dialog_info).build());
                   } catch(Throwable t) {}
 
                   try {
                       PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-                      wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IR::Lock");
+                      wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IRService::Lock");
                       wakeLock.acquire();
                   } catch(Throwable t) {}
 
                   try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) {}
+                  
                   login();
-              }
-
-              @Override public int onStartCommand(Intent intent, int flags, int startId) {
-                  if(intent!=null && intent.getStringExtra("DOCKER_URL")!=null) {
-                      dockerUrl = intent.getStringExtra("DOCKER_URL");
-                      localDecoderUrl = intent.getStringExtra("LOCAL_DECODER_URL");
-                      login();
-                  }
-                  return START_STICKY;
               }
 
               private String httpPost(String urlStr, String jsonBody, int timeout) {
@@ -96,7 +107,9 @@ jobs:
                       conn.setRequestMethod("POST");
                       conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
                       if(urlStr.contains("irext.net")) conn.setRequestProperty("user-lang", "zh-CN");
-                      conn.setConnectTimeout(timeout); conn.setReadTimeout(timeout); conn.setDoOutput(true);
+                      conn.setConnectTimeout(timeout);
+                      conn.setReadTimeout(timeout);
+                      conn.setDoOutput(true);
                       try(OutputStream os = conn.getOutputStream()) { os.write(jsonBody.getBytes(StandardCharsets.UTF_8)); }
                       InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
                       if (is == null) return "{}";
@@ -111,18 +124,21 @@ jobs:
 
               private void login() {
                   new Thread(() -> {
-                      String res = httpPost((dockerUrl.endsWith("/")?dockerUrl:dockerUrl+"/") + "irext-server/app/app_login", 
-                          "{\"appKey\":\"55b1d89fda0658d6f851ee89cad564de\",\"appSecret\":\"83dfd86ad59843ce50342ec863a49bf0\",\"appType\":\"2\"}", 5000);
+                      String req = "{\"appKey\":\"55b1d89fda0658d6f851ee89cad564de\",\"appSecret\":\"83dfd86ad59843ce50342ec863a49bf0\",\"appType\":\"2\"}";
+                      String url = dockerUrl.endsWith("/") ? dockerUrl : dockerUrl + "/";
+                      String res = httpPost(url + "irext-server/app/app_login", req, 5000);
                       try {
                           JsonObject entity = JsonParser.parseString(res).getAsJsonObject().getAsJsonObject("entity");
-                          apiId = entity.get("id").getAsString(); apiToken = entity.get("token").getAsString();
+                          apiId = entity.get("id").getAsString();
+                          apiToken = entity.get("token").getAsString();
                       } catch (Exception e) {}
                   }).start();
               }
 
-              // 🌟 V7 严格表格映射 (0-13)
+              // 🌟 完整恢复 V7 的 0-13 表格映射
               private int getKeyId(int cat, String k) {
                   if ((cat == 2 || cat == 3 || cat == 4 || cat == 5) && k.matches("\\d+")) return 14 + Integer.parseInt(k);
+
                   String[] m = null;
                   switch(cat) {
                       case 1: m = new String[]{"电源","模式","温度+","温度-","N/A","N/A","N/A","温度+","温度-","风力","扫风","固定风","N/A","N/A"}; break;
@@ -139,16 +155,24 @@ jobs:
                       case 13: m = new String[]{"电源","上","下","左","右","离子","+","-","自动","风力","模式","定时","灯光","强力"}; break;
                       default: m = new String[]{"电源","上","下","左","右","确认","返回","菜单"}; break;
                   }
-                  if(m != null) for(int i=0; i<m.length; i++) if(m[i].equals(k)) return i;
+                  
+                  if(m != null) {
+                      for(int i=0; i<m.length; i++) {
+                          if(m[i].equals(k)) return i; 
+                      }
+                  }
                   return -1;
               }
 
-              // 🌟 V2 本地解码逻辑 (原封不动)
+              // 🌟 完整恢复 V2 的本地解码接口请求参数
               private Map<String, Object> batchDecodeLocal(String indexId, String type, int cat) {
                   String cacheKey = indexId + "_" + type;
                   if(decodeCache.containsKey(cacheKey)) return decodeCache.get(cacheKey);
-                  String req = String.format("{\"id\":\"%s\",\"token\":\"%s\",\"indexId\":\"%s\",\"deviceType\":\"%s\",\"categoryId\":%d}", apiId, apiToken, indexId, type, cat);
-                  String res = httpPost((localDecoderUrl.endsWith("/")?localDecoderUrl:localDecoderUrl+"/") + "decode/all", req, 10000);
+                  
+                  String req = String.format("{\"id\":\"%s\",\"token\":\"%s\",\"indexId\":\"%s\",\"deviceType\":\"%s\",\"categoryId\":%d}",
+                      apiId, apiToken, indexId, type, cat);
+                  String url = localDecoderUrl.endsWith("/") ? localDecoderUrl : localDecoderUrl + "/";
+                  String res = httpPost(url + "decode/all", req, 10000); 
                   try {
                       JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
                       if(obj.has("keys")) {
@@ -171,20 +195,24 @@ jobs:
                   JsonObject req = new JsonObject();
                   req.addProperty("id", apiId); req.addProperty("token", apiToken);
                   req.addProperty("indexId", indexId);
+                  
                   if(cat == 1) {
-                      if(op.equals("电源")) s.addProperty("acPower", s.get("acPower").getAsInt()==0?1:0);
+                      if(op.equals("电源")) s.addProperty("acPower", s.get("acPower").getAsInt() == 0 ? 1 : 0);
                       else {
                           s.addProperty("acPower", 0);
-                          if(op.equals("模式")) s.addProperty("acMode", (s.get("acMode").getAsInt()+1)%5);
-                          if(op.equals("温度+")) s.addProperty("acTemp", Math.min(14, s.get("acTemp").getAsInt()+1));
-                          if(op.equals("温度-")) s.addProperty("acTemp", Math.max(0, s.get("acTemp").getAsInt()-1));
+                          if(op.equals("模式")) s.addProperty("acMode", (s.get("acMode").getAsInt() + 1) % 5);
+                          if(op.equals("温度+")) s.addProperty("acTemp", Math.min(14, s.get("acTemp").getAsInt() + 1));
+                          if(op.equals("温度-")) s.addProperty("acTemp", Math.max(0, s.get("acTemp").getAsInt() - 1));
                       }
                       req.addProperty("keyCode", 0); req.add("acStatus", s);
                   } else {
-                      int kid = getKeyId(cat, op); if(kid == -1) return null;
+                      int kid = getKeyId(cat, op); 
+                      if(kid == -1) return null;
                       req.addProperty("keyCode", kid);
                   }
-                  String res = httpPost((dockerUrl.endsWith("/")?dockerUrl:dockerUrl+"/") + "irext-server/operation/decode", req.toString(), 5000);
+                  
+                  String url = dockerUrl.endsWith("/") ? dockerUrl : dockerUrl + "/";
+                  String res = httpPost(url + "irext-server/operation/decode", req.toString(), 5000);
                   try {
                       JsonArray arr = JsonParser.parseString(res).getAsJsonObject().getAsJsonArray("entity");
                       int[] t = new int[arr.size()]; for(int i=0; i<arr.size(); i++) t[i] = arr.get(i).getAsInt();
@@ -196,9 +224,11 @@ jobs:
                   public WebServer(int port) { super(port); }
                   @Override
                   public Response serve(IHTTPSession session) {
-                      String uri = session.getUri(); Map<String, String> p = session.getParms();
+                      String uri = session.getUri();
+                      Map<String, String> p = session.getParms();
                       try {
                           if ("/api/list".equals(uri)) return jsonResponse(db.getString("devs", "[]"));
+                          
                           if ("/api/save".equals(uri)) {
                               int len = Integer.parseInt(session.getHeaders().get("content-length"));
                               byte[] buf = new byte[len]; session.getInputStream().read(buf, 0, len);
@@ -207,53 +237,70 @@ jobs:
                               db.edit().putString("devs", list.toString()).commit();
                               return jsonResponse("{\"ok\":true}");
                           }
+                          
                           if ("/api/delete".equals(uri)) {
                               JsonArray list = JsonParser.parseString(db.getString("devs", "[]")).getAsJsonArray();
                               JsonArray newList = new JsonArray();
                               int idx = Integer.parseInt(p.get("i"));
-                              for(int i=0; i<list.size(); i++) if(i!=idx) newList.add(list.get(i));
+                              for(int i=0; i<list.size(); i++) if(i != idx) newList.add(list.get(i));
                               db.edit().putString("devs", newList.toString()).commit();
                               return jsonResponse("{\"ok\":true}");
                           }
+
                           if ("/api/batch_decode".equals(uri)) {
-                              batchDecodeLocal(p.get("indexId"), "tv", 2);
-                              return jsonResponse("{\"ok\":true}");
+                              Map<String, Object> res = batchDecodeLocal(p.get("indexId"), "tv", 2);
+                              return jsonResponse("{\"ok\":" + (res != null) + "}");
                           }
+
                           if ("/api/tx".equals(uri)) {
-                              String id = p.get("id"); String k = p.get("k"); int cat = Integer.parseInt(p.get("cat"));
+                              String id = p.get("id"); 
+                              String k = p.get("k"); 
+                              int cat = Integer.parseInt(p.get("cat"));
                               int[] pattern = null;
 
-                              // 🌟🌟🌟 这里是重点：V2 的电视解码方法植入 V7 🌟🌟🌟
-                              // 针对电视(2)、机顶盒(3)等，优先走本地批量解码
-                              if (cat != 1) {
+                              // 🌟 V2 核心逻辑重现：只要不是空调，都优先试 8082
+                              if (cat != 1) { 
                                   Map<String, Object> cached = decodeCache.get(id + "_tv");
-                                  // V2 强制 type="tv", cat=2。这里保持一致，兼容您的8082服务。
+                                  // V2 强制写死了 "tv" 和 2，这里保持完全一致
                                   if(cached == null) cached = batchDecodeLocal(id, "tv", 2);
                                   
                                   if(cached != null) {
                                       JsonObject keys = JsonParser.parseString((String)cached.get("keys")).getAsJsonObject();
-                                      // 1. 优先尝试直接匹配按键名 (V2原逻辑)
+                                      
+                                      // 第1步：原原本本的 V2 逻辑，尝试直接拿中文名匹配
                                       if(keys.has(k)) {
                                           JsonArray arr = keys.getAsJsonObject(k).getAsJsonArray("timings");
-                                          pattern = new int[arr.size()]; for(int i=0; i<arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
+                                          pattern = new int[arr.size()]; 
+                                          for(int i=0; i<arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
                                       } 
-                                      // 2. 匹配不到？尝试用表格ID (0-13) 匹配 (针对您的表格)
+                                      // 第2步：结合 V7 逻辑，如果中文名拿不到，就用 0-13 表格索引去拿
                                       else {
                                           int kid = getKeyId(cat, k);
-                                          if (kid != -1 && keys.has(String.valueOf(kid))) {
-                                              JsonArray arr = keys.getAsJsonObject(String.valueOf(kid)).getAsJsonArray("timings");
-                                              pattern = new int[arr.size()]; for(int i=0; i<arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
+                                          String kidStr = String.valueOf(kid);
+                                          if(kid != -1 && keys.has(kidStr)) {
+                                              JsonArray arr = keys.getAsJsonObject(kidStr).getAsJsonArray("timings");
+                                              pattern = new int[arr.size()]; 
+                                              for(int i=0; i<arr.size(); i++) pattern[i] = arr.get(i).getAsInt();
                                           }
                                       }
                                   }
                               }
 
-                              if(pattern == null) pattern = decodeOnline(id, cat, k);
-                              if(pattern != null && pattern.length > 0) { ir.transmit(38000, pattern); return jsonResponse("{\"ok\":true}"); }
+                              // 如果本地没拿到，走云端
+                              if (pattern == null) {
+                                  pattern = decodeOnline(id, cat, k);
+                              }
+
+                              if(pattern != null && pattern.length > 0) { 
+                                  ir.transmit(38000, pattern);
+                                  return jsonResponse("{\"ok\":true}"); 
+                              }
                               return jsonResponse("{\"ok\":false}");
                           }
+                          
                           if ("/api/proxy".equals(uri)) {
-                              String res = httpPost((dockerUrl.endsWith("/")?dockerUrl:dockerUrl+"/") + p.get("p"), "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}", 8000);
+                              String url = dockerUrl.endsWith("/") ? dockerUrl : dockerUrl + "/";
+                              String res = httpPost(url + p.get("p"), "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}", 8000);
                               return jsonResponse(JsonParser.parseString(res).getAsJsonObject().get("entity").toString());
                           }
                       } catch(Exception e) { return jsonResponse("{\"error\":\""+e.getMessage()+"\"}"); }
@@ -261,31 +308,190 @@ jobs:
                   }
                   private Response jsonResponse(String json) { return newFixedLengthResponse(Response.Status.OK, "application/json; charset=UTF-8", json); }
               }
+
+              // 🌟 恢复完整的 HTML/JS 排版，拒绝单行压缩
               private String getWebInterface() {
-                  return "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>*{box-sizing:border-box}body{font-family:sans-serif;background:#f5f5f5;padding:15px;margin:0 auto;max-width:480px}.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:15px}.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}button{padding:10px;margin:5px;border:none;border-radius:8px;cursor:pointer}.btn-p{background:#1890ff;color:#fff}.btn-g{background:#52c41a;color:#fff}.btn-back{background:#eee;color:#333}.grid{display:grid;grid-template-columns:repeat(3,1fr)}select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:6px}</style></head><body><div id='views'><div id='v_home'><div class='card'><div class='header'><h2>🏠 我的设备</h2><button class='btn-g' onclick='goAdd()'>+ 添加</button></div><div id='dev_list'></div></div></div><div id='v_add' style='display:none'><div class='card'><div class='header'><h3>添加设备</h3><button class='btn-back' onclick='goHome()'>返回</button></div><select id='sc' onchange='loadBrands()'><option value='1'>空调</option><option value='2' selected>电视机</option><option value='3'>机顶盒</option><option value='5'>网络盒子</option><option value='4'>IPTV</option><option value='7'>风扇</option></select><select id='sb' onchange='loadIdxs()'><option>加载中...</option></select><select id='si'></select><button class='btn-p' style='width:100%' onclick='startMatch()'>进入极速匹配模式</button></div></div><div id='v_test' style='display:none'><div class='card'><div class='header'><h3 id='test_title'>测试</h3><button class='btn-back' onclick='goHome()'>取消</button></div><p id='bg_prog' style='font-size:12px;color:#999'></p><button class='btn-p' style='width:100%;padding:20px' onclick='testP()'>📡 测试电源键</button><div class='grid'><button onclick='testNext()'>没反应,下一个</button><button class='btn-g' onclick='saveTv()'>有反应,保存</button></div></div></div><div id='v_ctrl' style='display:none'><div class='card'><div class='header'><h3 id='c_title'>控制</h3><button class='btn-back' onclick='goHome()'>返回</button></div><div class='grid' id='btns'></div><button class='btn-r' style='width:100%;margin-top:20px;background:#ff4d4f;color:#fff' onclick='delDev()'>🗑️ 删除设备</button></div></div></div><script>"
-                      + "const $=i=>document.getElementById(i); let st={v:'home',devs:[],brands:[],idxs:[],cur:null,tvT:{cur:0,dec:{}}};"
-                      + "const KMAP={1:['电源','模式','温度+','温度-','风力','扫风','固定风'],2:['电源','静音','上','下','左','右','确认','音量+','音量-','返回','信号源','菜单','主页','设置'],3:['电源','静音','上','下','左','右','确认','音量+','音量-','返回','信号源','菜单','上一页','下一页'],5:['电源','上','下','左','右','确认','音量+','音量-','返回','菜单','主页'],default:['电源','上','下','左','右','确认','返回']};"
-                      + "function goHome(){st.v='home';document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$('v_home').style.display='block';loadDevs();}"
-                      + "async function loadDevs(){let r=await fetch('/api/list');st.devs=await r.json();$('dev_list').innerHTML=st.devs.map((d,i)=>`<div class='card' style='padding:15px;cursor:pointer' onclick='goCtrl(${i})'><b>${d.name}</b><br><small style='color:#999'>${d.brand}</small></div>`).join('');}"
-                      + "function goAdd(){document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$('v_add').style.display='block';loadBrands();}"
-                      + "async function loadBrands(){let c=$('sc').value;let r=await fetch('/api/proxy?p=/irext-server/indexing/list_brands&b=\\\"categoryId\\\":\\\"'+c+'\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"300\\\"');st.brands=await r.json();$('sb').innerHTML=st.brands.map((b,i)=>`<option value='${i}'>${b.name_cn||b.name}</option>`).join('');loadIdxs();}"
-                      + "async function loadIdxs(){let bi=$('sb').value;let r=await fetch(`/api/proxy?p=/irext-server/indexing/list_indexes&b=\\\"categoryId\\\":\\\"${$('sc').value}\\\",\\\"brandId\\\":\\\"${st.brands[bi].id}\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"100\\\"`);st.idxs=await r.json();$('si').innerHTML=st.idxs.map(x=>`<option>${x.remoteMap}</option>`).join('');}"
-                      + "function startMatch(){if($('sc').value!=1){st.v='test';$('v_add').style.display='none';$('v_test').style.display='block';st.tvT={cur:0,dec:{}};bgLoop();testP();}else{st.cur={name:'新设备',brand:st.brands[$('sb').value].name_cn,idx:st.idxs[0].id,cat:parseInt($('sc').value)};goCtrl(-1);}}"
-                      + "async function bgLoop(){for(let i=0;i<st.idxs.length;i++){if(st.v!='test')break;if(!st.tvT.dec[i]){await fetch('/api/batch_decode?indexId='+st.idxs[i].id);st.tvT.dec[i]=true;if($('bg_prog'))$('bg_prog').innerText=`后台就绪: ${Object.keys(st.tvT.dec).length}/${st.idxs.length}`;}}}"
-                      + "function testP(){let id=st.idxs[st.tvT.cur].id;fetch(`/api/tx?id=${id}&cat=${$('sc').value}&k=电源`);$('test_title').innerText=`测试 ${st.tvT.cur+1}/${st.idxs.length}`}"
-                      + "function testNext(){if(st.tvT.cur<st.idxs.length-1){st.tvT.cur++;testP();}else{alert('已到最后一个');}}"
-                      + "async function saveTv(){let br=st.brands[$('sb').value].name_cn;st.cur={name:br+'设备',brand:br,idx:st.idxs[st.tvT.cur].id,cat:parseInt($('sc').value)};await fetch('/api/save',{method:'POST',body:JSON.stringify(st.cur)});goHome();}"
-                      + "function goCtrl(i){st.v='ctrl';if(i>=0)st.cur=st.devs[i];document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');$('v_ctrl').style.display='block';$('c_title').innerText=st.cur.name;renderBtns();}"
-                      + "function renderBtns(){let ks=KMAP[st.cur.cat]||KMAP.default;let h=ks.map(k=>`<button class='btn-p' onclick='tx(\"${k}\")'>${k}</button>`).join('');if(st.cur.cat!=1){for(let i=1;i<=9;i++)h+=`<button onclick='tx(\"${i}\")'>${i}</button>`;h+=`<button onclick='tx(\"0\")'>0</button>`;}$('btns').innerHTML=h;}"
-                      + "async function tx(k){await fetch(`/api/tx?id=${st.cur.idx}&cat=${st.cur.cat}&k=${k}`);}"
-                      + "async function delDev(){if(confirm('删除?')){let i=st.devs.indexOf(st.cur);await fetch('/api/delete?i='+i);goHome();}}"
-                      + "goHome();</script></body></html>";
+                  return "<!DOCTYPE html>\n"
+                      + "<html>\n"
+                      + "<head>\n"
+                      + "<meta charset='utf-8'>\n"
+                      + "<meta name='viewport' content='width=device-width,initial-scale=1'>\n"
+                      + "<style>\n"
+                      + "*{box-sizing:border-box}\n"
+                      + "body{font-family:sans-serif;background:#f5f5f5;padding:15px;margin:0 auto;max-width:480px}\n"
+                      + ".card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:15px}\n"
+                      + ".header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}\n"
+                      + "button{padding:10px;margin:5px;border:none;border-radius:8px;cursor:pointer}\n"
+                      + ".btn-p{background:#1890ff;color:#fff}\n"
+                      + ".btn-g{background:#52c41a;color:#fff}\n"
+                      + ".btn-back{background:#eee;color:#333}\n"
+                      + ".grid{display:grid;grid-template-columns:repeat(3,1fr)}\n"
+                      + "select,input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:6px}\n"
+                      + "</style>\n"
+                      + "</head>\n"
+                      + "<body>\n"
+                      + "<div id='views'>\n"
+                      + "  <div id='v_home'>\n"
+                      + "    <div class='card'>\n"
+                      + "      <div class='header'><h2>🏠 我的设备</h2><button class='btn-g' onclick='goAdd()'>+ 添加</button></div>\n"
+                      + "      <div id='dev_list'></div>\n"
+                      + "    </div>\n"
+                      + "  </div>\n"
+                      + "  <div id='v_add' style='display:none'>\n"
+                      + "    <div class='card'>\n"
+                      + "      <div class='header'><h3>添加设备</h3><button class='btn-back' onclick='goHome()'>返回</button></div>\n"
+                      + "      <select id='sc' onchange='loadBrands()'>\n"
+                      + "        <option value='1'>空调</option>\n"
+                      + "        <option value='2' selected>电视机</option>\n"
+                      + "        <option value='3'>机顶盒</option>\n"
+                      + "        <option value='4'>IPTV</option>\n"
+                      + "        <option value='5'>网络盒子</option>\n"
+                      + "        <option value='7'>风扇</option>\n"
+                      + "      </select>\n"
+                      + "      <select id='sb' onchange='loadIdxs()'><option>加载中...</option></select>\n"
+                      + "      <select id='si'></select>\n"
+                      + "      <button class='btn-p' style='width:100%' onclick='startMatch()'>进入极速匹配模式</button>\n"
+                      + "    </div>\n"
+                      + "  </div>\n"
+                      + "  <div id='v_test' style='display:none'>\n"
+                      + "    <div class='card'>\n"
+                      + "      <div class='header'><h3 id='test_title'>电视测试</h3><button class='btn-back' onclick='goHome()'>取消</button></div>\n"
+                      + "      <p id='bg_prog' style='font-size:12px;color:#999'></p>\n"
+                      + "      <button class='btn-p' style='width:100%;padding:20px' onclick='testP()'>📡 测试电源键</button>\n"
+                      + "      <div class='grid'>\n"
+                      + "        <button onclick='testNext()'>没反应,下一个</button>\n"
+                      + "        <button class='btn-g' onclick='saveTv()'>有反应,保存</button>\n"
+                      + "      </div>\n"
+                      + "    </div>\n"
+                      + "  </div>\n"
+                      + "  <div id='v_ctrl' style='display:none'>\n"
+                      + "    <div class='card'>\n"
+                      + "      <div class='header'><h3 id='c_title'>控制</h3><button class='btn-back' onclick='goHome()'>返回</button></div>\n"
+                      + "      <div class='grid' id='btns'></div>\n"
+                      + "      <button class='btn-r' style='width:100%;margin-top:20px;background:#ff4d4f;color:#fff' onclick='delDev()'>🗑️ 删除设备</button>\n"
+                      + "    </div>\n"
+                      + "  </div>\n"
+                      + "</div>\n"
+                      + "<script>\n"
+                      + "const $=i=>document.getElementById(i);\n"
+                      + "let st={v:'home',devs:[],brands:[],idxs:[],cur:null,tvT:{cur:0,dec:{}}};\n"
+                      + "const KMAP={\n"
+                      + "  1:['电源','模式','温度+','温度-','风力','扫风','固定风'],\n"
+                      + "  2:['电源','静音','上','下','左','右','确认','音量+','音量-','返回','信号源','菜单','主页','设置'],\n"
+                      + "  3:['电源','静音','上','下','左','右','确认','音量+','音量-','返回','信号源','菜单','上一页','下一页'],\n"
+                      + "  5:['电源','上','下','左','右','确认','音量+','音量-','返回','菜单','主页'],\n"
+                      + "  4:['电源','静音','上','下','左','右','确认','音量+','音量-','返回','信号源','菜单','上一页','下一页'],\n"
+                      + "  7:['电源','上','下','左','右','确认','风力+','风力-','摇头','风力','风类','返回','主页','菜单'],\n"
+                      + "  default:['电源','上','下','左','右','确认','返回']\n"
+                      + "};\n"
+                      + "function goHome(){\n"
+                      + "  st.v='home';\n"
+                      + "  document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');\n"
+                      + "  $('v_home').style.display='block';\n"
+                      + "  loadDevs();\n"
+                      + "}\n"
+                      + "async function loadDevs(){\n"
+                      + "  let r=await fetch('/api/list');\n"
+                      + "  st.devs=await r.json();\n"
+                      + "  $('dev_list').innerHTML=st.devs.map((d,i)=>`<div class='card' style='padding:15px;cursor:pointer' onclick='goCtrl(${i})'><b>${d.name}</b><br><small style='color:#999'>${d.brand}</small></div>`).join('');\n"
+                      + "}\n"
+                      + "function goAdd(){\n"
+                      + "  document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');\n"
+                      + "  $('v_add').style.display='block';\n"
+                      + "  loadBrands();\n"
+                      + "}\n"
+                      + "async function loadBrands(){\n"
+                      + "  let c=$('sc').value;\n"
+                      + "  let r=await fetch('/api/proxy?p=/irext-server/indexing/list_brands&b=\\\"categoryId\\\":\\\"'+c+'\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"300\\\"');\n"
+                      + "  st.brands=await r.json();\n"
+                      + "  $('sb').innerHTML=st.brands.map((b,i)=>`<option value='${i}'>${b.name_cn||b.name}</option>`).join('');\n"
+                      + "  loadIdxs();\n"
+                      + "}\n"
+                      + "async function loadIdxs(){\n"
+                      + "  let bi=$('sb').value;\n"
+                      + "  let r=await fetch(`/api/proxy?p=/irext-server/indexing/list_indexes&b=\\\"categoryId\\\":\\\"${$('sc').value}\\\",\\\"brandId\\\":\\\"${st.brands[bi].id}\\\",\\\"from\\\":\\\"0\\\",\\\"count\\\":\\\"100\\\"`);\n"
+                      + "  st.idxs=await r.json();\n"
+                      + "  $('si').innerHTML=st.idxs.map(x=>`<option>${x.remoteMap}</option>`).join('');\n"
+                      + "}\n"
+                      + "function startMatch(){\n"
+                      + "  if($('sc').value==2 || $('sc').value==3 || $('sc').value==4 || $('sc').value==5){\n"
+                      + "    st.v='test';\n"
+                      + "    $('v_add').style.display='none';\n"
+                      + "    $('v_test').style.display='block';\n"
+                      + "    st.tvT={cur:0,dec:{}};\n"
+                      + "    bgLoop();\n"
+                      + "    testP();\n"
+                      + "  }else{\n"
+                      + "    st.cur={name:'新设备',brand:st.brands[$('sb').value].name_cn,idx:st.idxs[0].id,cat:parseInt($('sc').value)};\n"
+                      + "    goCtrl(-1);\n"
+                      + "  }\n"
+                      + "}\n"
+                      + "async function bgLoop(){\n"
+                      + "  for(let i=0;i<st.idxs.length;i++){\n"
+                      + "    if(st.v!='test')break;\n"
+                      + "    if(!st.tvT.dec[i]){\n"
+                      + "      await fetch('/api/batch_decode?indexId='+st.idxs[i].id);\n"
+                      + "      st.tvT.dec[i]=true;\n"
+                      + "      if($('bg_prog'))$('bg_prog').innerText=`后台就绪: ${Object.keys(st.tvT.dec).length}/${st.idxs.length}`;\n"
+                      + "    }\n"
+                      + "  }\n"
+                      + "}\n"
+                      + "function testP(){\n"
+                      + "  let id=st.idxs[st.tvT.cur].id;\n"
+                      + "  fetch(`/api/tx?id=${id}&cat=${$('sc').value}&k=电源`);\n"
+                      + "  $('test_title').innerText=`测试 ${st.tvT.cur+1}/${st.idxs.length}`\n"
+                      + "}\n"
+                      + "function testNext(){\n"
+                      + "  if(st.tvT.cur<st.idxs.length-1){\n"
+                      + "    st.tvT.cur++;\n"
+                      + "    testP();\n"
+                      + "  }else{\n"
+                      + "    alert('已到最后一个');\n"
+                      + "  }\n"
+                      + "}\n"
+                      + "async function saveTv(){\n"
+                      + "  let br=st.brands[$('sb').value].name_cn;\n"
+                      + "  st.cur={name:br+'设备',brand:br,idx:st.idxs[st.tvT.cur].id,cat:parseInt($('sc').value)};\n"
+                      + "  await fetch('/api/save',{method:'POST',body:JSON.stringify(st.cur)});\n"
+                      + "  goHome();\n"
+                      + "}\n"
+                      + "function goCtrl(i){\n"
+                      + "  st.v='ctrl';\n"
+                      + "  if(i>=0)st.cur=st.devs[i];\n"
+                      + "  document.querySelectorAll('#views>div').forEach(d=>d.style.display='none');\n"
+                      + "  $('v_ctrl').style.display='block';\n"
+                      + "  $('c_title').innerText=st.cur.name;\n"
+                      + "  renderBtns();\n"
+                      + "}\n"
+                      + "function renderBtns(){\n"
+                      + "  let ks=KMAP[st.cur.cat]||KMAP.default;\n"
+                      + "  let h=ks.map(k=>`<button class='btn-p' onclick='tx(\"${k}\")'>${k}</button>`).join('');\n"
+                      + "  if(st.cur.cat==2 || st.cur.cat==3 || st.cur.cat==4 || st.cur.cat==5){\n"
+                      + "    for(let i=1;i<=9;i++)h+=`<button onclick='tx(\"${i}\")'>${i}</button>`;\n"
+                      + "    h+=`<button onclick='tx(\"0\")'>0</button>`;\n"
+                      + "  }\n"
+                      + "  $('btns').innerHTML=h;\n"
+                      + "}\n"
+                      + "async function tx(k){\n"
+                      + "  await fetch(`/api/tx?id=${st.cur.idx}&cat=${st.cur.cat}&k=${k}`);\n"
+                      + "}\n"
+                      + "async function delDev(){\n"
+                      + "  if(confirm('删除?')){\n"
+                      + "    let i=st.devs.indexOf(st.cur);\n"
+                      + "    await fetch('/api/delete?i='+i);\n"
+                      + "    goHome();\n"
+                      + "  }\n"
+                      + "}\n"
+                      + "goHome();\n"
+                      + "</script>\n"
+                      + "</body>\n"
+                      + "</html>";
               }
               @Override public IBinder onBind(Intent intent) { return null; }
           }
           EOF
 
-      - name: 4. 主界面 (V7)
+      - name: 4. 编写主界面 (恢复完整格式)
         run: |
           cat <<'EOF' > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
@@ -297,11 +503,13 @@ jobs:
           import android.view.*;
           import android.webkit.*;
           import android.widget.*;
+
           public class MainActivity extends Activity {
               private SharedPreferences cfg;
               private EditText ipInput, decoderInput;
               private WebView webView;
               private boolean isWeb = false;
+
               protected void onCreate(Bundle saved) {
                   super.onCreate(saved);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
@@ -310,43 +518,106 @@ jobs:
                   main.setOrientation(LinearLayout.VERTICAL);
                   main.setPadding(40, 40, 40, 40);
                   
-                  TextView title = new TextView(this); title.setText("📡 红外网关 V10"); title.setTextSize(24); main.addView(title);
-                  TextView l1 = new TextView(this); l1.setText("\n1. Docker IP (8081):"); main.addView(l1);
-                  ipInput = new EditText(this); ipInput.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081")); main.addView(ipInput);
-                  TextView l2 = new TextView(this); l2.setText("\n2. 本地解码 (8082, 必须对应表格):"); main.addView(l2);
-                  decoderInput = new EditText(this); decoderInput.setText(cfg.getString("local_decoder", "http://192.168.1.100:8082")); main.addView(decoderInput);
+                  TextView title = new TextView(this); 
+                  title.setText("📡 红外网关 V11 (终极完整版)"); 
+                  title.setTextSize(24); 
+                  main.addView(title);
                   
-                  Button btn = new Button(this); btn.setText("🚀 启动服务"); btn.setBackgroundColor(Color.parseColor("#1890ff")); btn.setTextColor(Color.WHITE);
+                  TextView l1 = new TextView(this); 
+                  l1.setText("\n1. Docker IP (8081):"); 
+                  main.addView(l1);
+                  
+                  ipInput = new EditText(this); 
+                  ipInput.setText(cfg.getString("docker_ip", "http://192.168.1.100:8081")); 
+                  main.addView(ipInput);
+                  
+                  TextView l2 = new TextView(this); 
+                  l2.setText("\n2. 本地解码 (8082, 优先查表):"); 
+                  main.addView(l2);
+                  
+                  decoderInput = new EditText(this); 
+                  decoderInput.setText(cfg.getString("local_decoder", "http://192.168.1.100:8082")); 
+                  main.addView(decoderInput);
+                  
+                  Button btn = new Button(this); 
+                  btn.setText("🚀 启动服务"); 
+                  btn.setBackgroundColor(Color.parseColor("#1890ff")); 
+                  btn.setTextColor(Color.WHITE);
+                  
                   btn.setOnClickListener(v -> {
-                      cfg.edit().putString("docker_ip", ipInput.getText().toString()).putString("local_decoder", decoderInput.getText().toString()).apply();
+                      cfg.edit()
+                         .putString("docker_ip", ipInput.getText().toString())
+                         .putString("local_decoder", decoderInput.getText().toString())
+                         .apply();
+                         
                       Intent i = new Intent(this, IRService.class);
-                      i.putExtra("DOCKER_URL", ipInput.getText().toString()); i.putExtra("LOCAL_DECODER_URL", decoderInput.getText().toString());
-                      if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
+                      i.putExtra("DOCKER_URL", ipInput.getText().toString()); 
+                      i.putExtra("LOCAL_DECODER_URL", decoderInput.getText().toString());
+                      
+                      if (android.os.Build.VERSION.SDK_INT >= 26) {
+                          startForegroundService(i); 
+                      } else {
+                          startService(i);
+                      }
                       Toast.makeText(this, "服务已启动", Toast.LENGTH_SHORT).show();
                   });
                   main.addView(btn);
                   
-                  Button btnWeb = new Button(this); btnWeb.setText("进入控制台");
-                  btnWeb.setOnClickListener(v -> { isWeb=true; webView.setVisibility(View.VISIBLE); webView.loadUrl("http://127.0.0.1:8080"); });
+                  Button btnWeb = new Button(this); 
+                  btnWeb.setText("进入控制台");
+                  btnWeb.setOnClickListener(v -> { 
+                      isWeb=true; 
+                      webView.setVisibility(View.VISIBLE); 
+                      webView.loadUrl("http://127.0.0.1:8080"); 
+                  });
                   main.addView(btnWeb);
                   
-                  scroll.addView(main); setContentView(scroll);
-                  webView = new WebView(this); webView.getSettings().setJavaScriptEnabled(true); webView.getSettings().setDomStorageEnabled(true); webView.setVisibility(View.GONE);
+                  scroll.addView(main); 
+                  setContentView(scroll);
+                  
+                  webView = new WebView(this); 
+                  webView.getSettings().setJavaScriptEnabled(true); 
+                  webView.getSettings().setDomStorageEnabled(true); 
+                  webView.setVisibility(View.GONE);
                   addContentView(webView, new ViewGroup.LayoutParams(-1, -1));
               }
-              @Override public void onBackPressed() { if(isWeb) { isWeb=false; webView.setVisibility(View.GONE); webView.loadUrl("about:blank"); } else super.onBackPressed(); }
+
+              @Override 
+              public void onBackPressed() { 
+                  if(isWeb) { 
+                      isWeb=false; 
+                      webView.setVisibility(View.GONE); 
+                      webView.loadUrl("about:blank"); 
+                  } else {
+                      super.onBackPressed(); 
+                  }
+              }
           }
           EOF
 
-      - name: 5. 配置文件
+      - name: 5. 配置文件 (恢复格式)
         run: |
           cat <<'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.TRANSMIT_IR" /><uses-permission android:name="android.permission.INTERNET" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /><uses-permission android:name="android.permission.WAKE_LOCK" />
-              <application android:label="红外网关V10" android:theme="@android:style/Theme.DeviceDefault.Light" android:usesCleartextTraffic="true">
-                  <activity android:name="hap.re00660.re.MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
-                  <service android:name="hap.re00660.re.IRService" android:exported="false" /><receiver android:name="hap.re00660.re.BootReceiver" android:exported="true" android:enabled="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter></receiver>
+              <uses-permission android:name="android.permission.TRANSMIT_IR" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <application android:label="红外网关V11" android:theme="@android:style/Theme.DeviceDefault.Light" android:usesCleartextTraffic="true">
+                  <activity android:name="hap.re00660.re.MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service android:name="hap.re00660.re.IRService" android:exported="false" />
+                  <receiver android:name="hap.re00660.re.BootReceiver" android:exported="true" android:enabled="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      </intent-filter>
+                  </receiver>
               </application>
           </manifest>
           EOF
@@ -354,13 +625,31 @@ jobs:
           echo "android.enableJetifier=true" >> gradle.properties
           echo "include ':app'" > settings.gradle
           cat <<'EOF' > build.gradle
-          buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }
-          allprojects { repositories { google(); mavenCentral() } }
+          buildscript { 
+              repositories { google(); mavenCentral() } 
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } 
+          }
+          allprojects { 
+              repositories { google(); mavenCentral() } 
+          }
           EOF
           cat <<'EOF' > app/build.gradle
-          plugins { id 'com.android.application' }
-          android { compileSdk 34; namespace "hap.re00660.re"; defaultConfig { applicationId "hap.re00660.re"; minSdk 21; targetSdk 34; } }
-          dependencies { implementation 'org.nanohttpd:nanohttpd:2.3.1'; implementation 'com.google.code.gson:gson:2.10.1' }
+          plugins { 
+              id 'com.android.application' 
+          }
+          android { 
+              compileSdk 34; 
+              namespace "hap.re00660.re"; 
+              defaultConfig { 
+                  applicationId "hap.re00660.re"; 
+                  minSdk 21; 
+                  targetSdk 34; 
+              } 
+          }
+          dependencies { 
+              implementation 'org.nanohttpd:nanohttpd:2.3.1'; 
+              implementation 'com.google.code.gson:gson:2.10.1' 
+          }
           EOF
 
       - name: 6. 编译
@@ -372,5 +661,5 @@ jobs:
       - name: 7. 上传
         uses: actions/upload-artifact@v4
         with:
-          name: IREXT_V10_HYBRID_FINAL
+          name: IREXT_V11_FULL_FORMAT_RESTORE
           path: app/build/outputs/apk/debug/app-debug.apk
