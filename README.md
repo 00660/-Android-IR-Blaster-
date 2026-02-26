@@ -55,12 +55,12 @@ curl -fsSL https://raw.githubusercontent.com/00660/Android-IR-Blaster/main/insta
 bash
 复制
 # 1. 下载码库数据
-wget https://irext-lib-release.oss-cn-hangzhou.aliyuncs.com/pc-docker-image/1.5.2/irext-private-data_1.5.2.tar.gz
+``` wget https://irext-lib-release.oss-cn-hangzhou.aliyuncs.com/pc-docker-image/1.5.2/irext-private-data_1.5.2.tar.gz
 tar -xf irext-private-data_1.5.2.tar.gz
 sudo mv data /
 
 # 2. 部署 8081 云端解码服务（x86_64 必需）
-sudo docker pull crpi-r0wi5w1pz8m6ceho.cn-hangzhou.personal.cr.aliyuncs.com/irext-private/irext-private-cloud:1.5.2
+``` sudo docker pull crpi-r0wi5w1pz8m6ceho.cn-hangzhou.personal.cr.aliyuncs.com/irext-private/irext-private-cloud:1.5.2
 sudo docker run -itd --restart unless-stopped \
   --name irext-private \
   -v /data:/data \
@@ -78,7 +78,7 @@ docker-compose up -d
 方式三：国内镜像加速安装
 bash
 复制
-curl -fsSL https://ghproxy.com/https://raw.githubusercontent.com/00660/Android-IR-Blaster/main/install.sh | sudo bash
+``` curl -fsSL https://ghproxy.com/https://raw.githubusercontent.com/00660/Android-IR-Blaster/main/install.sh | sudo bash
 激活服务：点击"保存并启动网关"，记录屏幕显示的访问地址（如 http://192.168.1.5:8080 ）。
 添加设备：
 点击"添加设备"，进入智能匹配向导。
