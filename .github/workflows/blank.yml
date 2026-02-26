@@ -553,7 +553,12 @@ jobs:
                   super.onCreate(saved);
                   db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
-                  
+                      // 🌟 获取屏幕尺寸，计算自适应padding
+                  android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+                  getWindowManager().getDefaultDisplay().getMetrics(dm);
+                  int screenWidth = dm.widthPixels;
+                  int basePadding = Math.max(20, screenWidth / 36);  // 小屏20dp，大屏更大
+                  int cardPadding = Math.max(16, screenWidth / 45);   // 卡片内边距
                   statusReceiver = new BroadcastReceiver() {
                       @Override
                       public void onReceive(Context context, Intent intent) {
@@ -574,7 +579,7 @@ jobs:
                   
                   LinearLayout main = new LinearLayout(this);
                   main.setOrientation(LinearLayout.VERTICAL);
-                  main.setPadding(40, 40, 40, 40);
+                  main.setPadding(basePadding, basePadding, basePadding, basePadding);  // ← 改用动态值
                   
                   TextView title = new TextView(this); 
                   title.setText("📡 ha红外网关 Pro V3"); 
@@ -780,10 +785,12 @@ jobs:
                           LinearLayout card = new LinearLayout(this);
                           card.setOrientation(LinearLayout.VERTICAL);
                           card.setBackgroundColor(Color.WHITE);
-                          card.setPadding(30, 30, 30, 30);
+                         // 🌟 小屏幕适配：使用动态计算的 padding
+                          int cardPadding = Math.max(16, screenWidth / 45);
+                          card.setPadding(cardPadding, cardPadding, cardPadding, cardPadding);
                           LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                               ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                          lp.setMargins(0, 0, 0, 20);
+                          lp.setMargins(0, 0, 0, Math.max(12, screenWidth / 60));  // 动态margin
                           card.setLayoutParams(lp);
                           
                           TextView tvName = new TextView(this);
