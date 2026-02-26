@@ -697,6 +697,7 @@ jobs:
                       String devsStr = db.getString("devs", "[]");
                       JsonArray arr = JsonParser.parseString(devsStr).getAsJsonArray();
                       for (int i = 0; i < arr.size(); i++) {
+                          final int idx = i; // 🌟 修复: 声明 final 变量供 Lambda 使用
                           JsonObject o = arr.get(i).getAsJsonObject();
                           LinearLayout item = new LinearLayout(this);
                           item.setOrientation(LinearLayout.HORIZONTAL);
@@ -713,7 +714,8 @@ jobs:
                           del.setTextSize(12);
                           del.setOnClickListener(v -> {
                               JsonArray newList = new JsonArray();
-                              for(int j=0; j<arr.size(); j++) if(j!=i) newList.add(arr.get(j));
+                              // 🌟 修复: 使用 idx 替代 i
+                              for(int j=0; j<arr.size(); j++) if(j!=idx) newList.add(arr.get(j));
                               db.edit().putString("devs", newList.toString()).apply();
                               refreshList();
                           });
