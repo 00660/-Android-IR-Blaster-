@@ -1,4 +1,4 @@
-name: IREXT_ULTIMATE_GATEWAY_FINAL
+name: IREXT_ULTIMATE_FINAL_FIXED
 
 on: [push, workflow_dispatch]
 
@@ -38,7 +38,6 @@ jobs:
               private PowerManager.WakeLock wakeLock;
               private static final String TAG = "IRService";
 
-              // 缓存管理
               private Map<String, JsonObject> acStateCache = new HashMap<>();
               private Map<String, Map<String, Object>> decodeCache = new HashMap<>();
 
@@ -57,22 +56,19 @@ jobs:
                   super.onCreate();
                   db = getSharedPreferences("IREXT_DB", MODE_PRIVATE);
                   cfg = getSharedPreferences("IREXT_CFG", MODE_PRIVATE);
-                  
                   try {
                       NotificationChannel ch = new NotificationChannel("IR", "红外网关", NotificationManager.IMPORTANCE_LOW);
                       getSystemService(NotificationManager.class).createNotificationChannel(ch);
                       startForeground(1, new Notification.Builder(this, "IR")
-                          .setContentTitle("红外网关运行中")
+                          .setContentTitle("红外网关Pro运行中")
                           .setContentText("控制台: http://0.0.0.0:8080")
                           .setSmallIcon(android.R.drawable.ic_dialog_info).build());
                   } catch(Throwable t) {}
-                  
                   try {
                       PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
                       wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IRService::WakeLock");
                       wakeLock.acquire();
                   } catch(Throwable t) {}
-                  
                   try { ir = (ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE); } catch(Throwable t) {}
                   try { server = new WebServer(8080); server.start(); } catch (Exception e) {}
               }
@@ -96,8 +92,7 @@ jobs:
                       conn.setReadTimeout(timeout);
                       conn.setDoOutput(true);
                       try(OutputStream os = conn.getOutputStream()) { os.write(jsonBody.getBytes(StandardCharsets.UTF_8)); }
-                      int code = conn.getResponseCode();
-                      InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                      InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
                       if (is == null) return "{}";
                       try(BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
                           StringBuilder sb = new StringBuilder(); String line;
@@ -111,7 +106,8 @@ jobs:
               private void loginPrivateCloud() {
                   new Thread(() -> {
                       String req = "{\"appKey\":\"55b1d89fda0658d6f851ee89cad564de\",\"appSecret\":\"83dfd86ad59843ce50342ec863a49bf0\",\"appType\":\"2\"}";
-                      String res = httpPost(dockerUrl + "/irext-server/app/app_login", req, 5000);
+                      String url = dockerUrl.endsWith("/") ? dockerUrl : dockerUrl + "/";
+                      String res = httpPost(url + "irext-server/app/app_login", req, 5000);
                       try {
                           JsonObject entity = JsonParser.parseString(res).getAsJsonObject().getAsJsonObject("entity");
                           apiId = entity.get("id").getAsString();
@@ -120,7 +116,6 @@ jobs:
                   }).start();
               }
 
-              // 按键映射处理
               private int getKeyId(int cat, String k) {
                   if ((cat == 2 || cat == 3) && k.matches("\\d+")) return 14 + Integer.parseInt(k);
                   String[] m = null;
@@ -135,13 +130,13 @@ jobs:
                   return -1;
               }
 
-              // 8082 本地批量解码
               private Map<String, Object> batchDecodeLocal(String indexId, String type, int cat) {
                   String cacheKey = indexId + "_" + type;
                   if(decodeCache.containsKey(cacheKey)) return decodeCache.get(cacheKey);
                   String req = String.format("{\"id\":\"%s\",\"token\":\"%s\",\"indexId\":\"%s\",\"deviceType\":\"%s\",\"categoryId\":%d}",
                       apiId, apiToken, indexId, type, cat);
-                  String res = httpPost(localDecoderUrl + "/decode/all", req, 15000);
+                  String url = localDecoderUrl.endsWith("/") ? localDecoderUrl : localDecoderUrl + "/";
+                  String res = httpPost(url + "decode/all", req, 15000);
                   try {
                       JsonObject obj = JsonParser.parseString(res).getAsJsonObject();
                       if(obj.has("keys")) {
@@ -154,7 +149,6 @@ jobs:
                   return null;
               }
 
-              // 8081/云端 在线解码 (主要用于空调状态)
               private int[] decodeOnline(String indexId, int cat, String op) {
                   JsonObject s = acStateCache.get(indexId);
                   if(s == null && cat == 1) {
@@ -162,11 +156,9 @@ jobs:
                       s.addProperty("acTemp", 10); s.addProperty("acWindSpeed", 0); s.addProperty("acWindDir", 0);
                       acStateCache.put(indexId, s);
                   }
-                  
                   JsonObject req = new JsonObject();
                   req.addProperty("id", apiId); req.addProperty("token", apiToken);
                   req.addProperty("indexId", indexId);
-                  
                   if(cat == 1) {
                       if(op.equals("电源")) s.addProperty("acPower", s.get("acPower").getAsInt() == 0 ? 1 : 0);
                       else {
@@ -177,12 +169,11 @@ jobs:
                       }
                       req.addProperty("keyCode", 0); req.add("acStatus", s);
                   } else {
-                      int kid = getKeyId(cat, op);
-                      if(kid == -1) return null;
+                      int kid = getKeyId(cat, op); if(kid == -1) return null;
                       req.addProperty("keyCode", kid);
                   }
-
-                  String res = httpPost(dockerUrl + "/irext-server/operation/decode", req.toString(), 5000);
+                  String url = dockerUrl.endsWith("/") ? dockerUrl : dockerUrl + "/";
+                  String res = httpPost(url + "irext-server/operation/decode", req.toString(), 5000);
                   try {
                       JsonArray arr = JsonParser.parseString(res).getAsJsonObject().getAsJsonArray("entity");
                       int[] t = new int[arr.size()]; for(int i=0; i<arr.size(); i++) t[i] = arr.get(i).getAsInt();
@@ -215,8 +206,7 @@ jobs:
                               return jsonResponse("{\"ok\":true}");
                           }
                           if ("/api/batch_decode".equals(uri)) {
-                              String id = p.get("indexId");
-                              Map<String, Object> res = batchDecodeLocal(id, "tv", 2);
+                              Map<String, Object> res = batchDecodeLocal(p.get("indexId"), "tv", 2);
                               if(res != null) {
                                   JsonObject resp = new JsonObject(); resp.addProperty("ok", true);
                                   resp.add("keys", JsonParser.parseString((String)res.get("keys")));
@@ -244,7 +234,8 @@ jobs:
                               return jsonResponse("{\"ok\":false}");
                           }
                           if ("/api/proxy".equals(uri)) {
-                              String res = httpPost(dockerUrl + p.get("p"), "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}", 8000);
+                              String url = dockerUrl.endsWith("/") ? dockerUrl : dockerUrl + "/";
+                              String res = httpPost(url + p.get("p"), "{\"id\":\""+apiId+"\",\"token\":\""+apiToken+"\"," + p.get("b") + "}", 8000);
                               return jsonResponse(JsonParser.parseString(res).getAsJsonObject().get("entity").toString());
                           }
                       } catch(Exception e) { return jsonResponse("{\"error\":\""+e.getMessage()+"\"}"); }
@@ -296,7 +287,7 @@ jobs:
 
       - name: 3. 编写主界面 (带 8081/8082 配置和源切换)
         run: |
-          cat <<EOF > app/src/main/java/hap/re00660/re/MainActivity.java
+          cat <<'EOF' > app/src/main/java/hap/re00660/re/MainActivity.java
           package hap.re00660.re;
           import android.app.Activity;
           import android.content.Intent;
@@ -306,9 +297,6 @@ jobs:
           import android.view.*;
           import android.webkit.*;
           import android.widget.*;
-          import com.google.gson.*;
-          import java.net.*;
-          import java.util.*;
 
           public class MainActivity extends Activity {
               private SharedPreferences cfg;
@@ -368,9 +356,9 @@ jobs:
           }
           EOF
 
-      - name: 4. 构建配置
+      - name: 4. 构建配置 (Manifest + Properties + Gradle)
         run: |
-          cat <<EOF > app/src/main/AndroidManifest.xml
+          cat <<'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.TRANSMIT_IR" />
@@ -384,13 +372,41 @@ jobs:
               </application>
           </manifest>
           EOF
-          echo "include ':app'" > settings.gradle
-          echo "buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.android.tools.build:gradle:8.2.2' } }" > build.gradle
-          echo "allprojects { repositories { google(); mavenCentral() } }" >> build.gradle
-          cat <<EOF > app/build.gradle
+
+          cat <<'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
+          cat <<'EOF' > settings.gradle
+          include ':app'
+          EOF
+
+          cat <<'EOF' > build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
+          }
+          allprojects {
+              repositories { google(); mavenCentral() }
+          }
+          EOF
+
+          cat <<'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
-          android { compileSdk 34; namespace "hap.re00660.re"; defaultConfig { applicationId "hap.re00660.re"; minSdk 26; targetSdk 34; } }
-          dependencies { implementation 'org.nanohttpd:nanohttpd:2.3.1'; implementation 'com.google.code.gson:gson:2.10.1'; }
+          android {
+              compileSdk 34
+              namespace "hap.re00660.re"
+              defaultConfig {
+                  applicationId "hap.re00660.re"
+                  minSdk 26
+                  targetSdk 34
+              }
+          }
+          dependencies {
+              implementation 'org.nanohttpd:nanohttpd:2.3.1'
+              implementation 'com.google.code.gson:gson:2.10.1'
+          }
           EOF
 
       - name: 5. 编译
@@ -402,5 +418,5 @@ jobs:
       - name: 6. 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: IREXT_ULTIMATE_FINAL
+          name: IREXT_ULTIMATE_FIXED
           path: app/build/outputs/apk/debug/app-debug.apk
