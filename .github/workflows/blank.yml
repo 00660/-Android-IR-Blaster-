@@ -1065,3 +1065,13 @@ jobs:
         with:
           name: IREXT_ANDROID5_CLOUD_SWITCH_PRO_V3_FIXED
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: 8. 发布到 GitHub Releases
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: app/build/outputs/apk/debug/app-debug.apk
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
