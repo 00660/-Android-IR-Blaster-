@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  ir-decoder:
+    build: .
+    container_name: ir-decoder
+    ports:
+      - "8082:8082"
+    restart: unless-stopped
