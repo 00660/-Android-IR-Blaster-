@@ -1087,12 +1087,12 @@ jobs:
           cat <<EOF > app/build.gradle
           plugins { id 'com.android.application' }
           android { 
-              compileSdk 33
+              compileSdk 34
               namespace "hap.re00660.re"
               defaultConfig { 
                   applicationId "hap.re00660.re"
                   minSdk 21
-                  targetSdk 33
+                  targetSdk 34
                   versionCode 1
                   versionName "1.0"
               }
