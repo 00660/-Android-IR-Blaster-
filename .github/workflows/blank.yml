@@ -910,11 +910,13 @@ jobs:
                   }
               }
               
-              private void confirmDelete(final int index, final String name) {
+              private void confirmDelete(int index, String name) {
+                  final int finalIndex = index;
+                  final String finalName = name;
                   new AlertDialog.Builder(this)
                       .setTitle("删除设备")
-                      .setMessage("确定要删除 \"" + name + "\" 吗？")
-                      .setPositiveButton("删除", (dialog, which) -> deleteDevice(index))
+                      .setMessage("确定要删除 \"" + finalName + "\" 吗？")
+                      .setPositiveButton("删除", (dialog, which) -> deleteDevice(finalIndex))
                       .setNegativeButton("取消", null)
                       .show();
               }
