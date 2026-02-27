@@ -390,7 +390,7 @@ jobs:
                               int[] pattern = null;
                               String source = "unknown";
                               
-                              if (cat == 2 || cat == 3 || cat == 8) {
+                              if (cat >= 2 && cat <= 15) {
                                   String dType = (cat == 3) ? "stb" : "tv";
                                   Map<String, Object> cached = decodeCache.get(id + "_" + dType);
                                   if(cached == null) {
