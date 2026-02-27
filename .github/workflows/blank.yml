@@ -910,7 +910,7 @@ jobs:
                   }
               }
               
-              private void confirmDelete(int index, String name) {
+              private void confirmDelete(final int index, final String name) {
                   new AlertDialog.Builder(this)
                       .setTitle("删除设备")
                       .setMessage("确定要删除 \"" + name + "\" 吗？")
