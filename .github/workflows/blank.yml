@@ -850,7 +850,7 @@ jobs:
                           btnDel.setTextSize(12);
                           btnDel.setBackgroundColor(Color.parseColor("#fee2e2"));
                           btnDel.setTextColor(Color.parseColor("#dc2626"));
-                          btnDel.setOnClickListener(v -> confirmDelete(finalIndex, finalName));
+                          btnDel.setOnClickListener(v -> deleteDevice(finalIndex));
                           GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
                           glp.width = 0;
                           glp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
